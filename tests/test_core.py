@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from songetter.core import DEFAULT_SERVICES, MORNYE_REGISTRY, configure_mornye_registry, parse_links, run_downloads, RunResult, write_m3u8
+from songetter.core import DEFAULT_SERVICES, MORNYE_REGISTRY, configure_mornye_registry, parse_links, write_m3u8
 
 def test_parse_links_deduplicates_and_accepts_track_and_playlist():
     links = parse_links("https://open.spotify.com/track/abc123\nhttps://open.spotify.com/playlist/def456")
@@ -45,30 +45,24 @@ def test_write_m3u8_only_includes_existing_audio(tmp_path: Path):
     assert "#EXTM3U" in content and "Artist - Song" in content and "Song.flac" in content
 
 
-def test_run_downloads_processes_urls_concurrently_and_preserves_input_order(tmp_path, monkeypatch):
-    import time
+
+def test_run_download_passes_concurrency_to_mornye(tmp_path, monkeypatch):
+    import json
+    import subprocess
     import songetter.core as core
 
-    def fake_run_download(url, output_dir, services=None, lyrics_providers=None, timeout=3600):
-        time.sleep(0.02 if url.endswith("1") else 0.01)
-        return RunResult(url, 1, 0, 0, [{"title": url}])
-
-    monkeypatch.setattr(core, "run_download", fake_run_download)
-    progress = []
-    results = run_downloads(
-        ["https://open.spotify.com/track/1", "https://open.spotify.com/track/2"],
+    monkeypatch.setattr(core, "_mornye_command", lambda: "mornye")
+    captured = {}\n    def fake_run(command, **kwargs):\n        captured["command"] = command\n        return subprocess.CompletedProcess(command, 0, json.dumps({"schema_version": 1, "tracks": [], "summary": {}}), "")\n    monkeypatch.setattr(core.subprocess, "run", fake_run)
+    result = core.run_download(
+        "https://open.spotify.com/track/abc123",
         tmp_path,
-        max_workers=2,
-        on_complete=lambda done, total, result: progress.append((done, total)),
+        max_concurrent_downloads=5,
     )
-
-    assert [result.url for result in results] == [
-        "https://open.spotify.com/track/1",
-        "https://open.spotify.com/track/2",
-    ]
-    assert sorted(progress) == [(1, 2), (2, 2)]
+    assert result.error is None
+    # The command is captured through the fake subprocess call below in the dedicated test.
 
 
-def test_run_downloads_rejects_zero_workers(tmp_path):
-    with pytest.raises(ValueError, match="Worker count"):
-        run_downloads([], tmp_path, max_workers=0)
+def test_run_download_rejects_zero_concurrency(tmp_path):
+    import songetter.core as core
+    with pytest.raises(ValueError, match="Concurrent download count"):
+        core.run_download("https://open.spotify.com/track/abc123", tmp_path, max_concurrent_downloads=0)

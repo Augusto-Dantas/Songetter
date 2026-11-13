@@ -106,7 +106,7 @@ if start:
                     current_total = int(progress_match.group(1))
                 progress.progress(0, text="Mornye is resolving the Spotify link...")
             if "verification paused" in message.lower() or "next try in" in message.lower():
-                status.warning("A provider has temporarily paused requests. The failed track will not be retried automatically.")
+                status.warning("A provider cooldown was detected. Songetter is stopping that provider and moving to the next one.")
 
         def show_metrics(metrics: dict) -> None:
             speed_value.metric("Download speed", format_bytes_per_second(metrics.get("speed_bps", 0)))
@@ -133,6 +133,20 @@ if start:
             all_tracks.extend(result.tracks)
             for key in totals:
                 totals[key] += getattr(result, key)
+
+            for provider_result in result.provider_status:
+                provider_name = provider_result.get("provider", "Unknown provider")
+                if provider_result.get("status") == "cooldown":
+                    remaining = int(provider_result.get("retry_after_seconds", 0) or 0)
+                    minutes, seconds = divmod(max(0, remaining), 60)
+                    st.warning(
+                        f"{provider_name} is temporarily paused ({minutes}m {seconds}s remaining). "
+                        "It has been skipped for this run and its cooldown is saved for future runs."
+                    )
+                elif provider_result.get("status") == "completed" and provider_result.get("failed", 0):
+                    st.caption(
+                        f"{provider_name}: {provider_result.get('failed')} track(s) still need another provider."
+                    )
 
             if result.error:
                 st.error(f"{url}: {result.error}")

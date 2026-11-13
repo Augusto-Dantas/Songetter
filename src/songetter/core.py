@@ -92,6 +92,38 @@ def _directory_bytes(root: Path) -> int:
     return total
 
 
+def _extract_log_failures(stderr_text: str) -> list[dict]:
+    failures: dict[str, dict] = {}
+    for line in stderr_text.splitlines():
+        match = re.search(r"✗\\s+\\[#(\\d+)\\]\\s+(\\S+)\\s+·\\s+(.+)$", line)
+        if match:
+            index, provider, detail = match.groups()
+            failures[index] = {
+                "index": int(index),
+                "provider": provider,
+                "status": "failed",
+                "error": detail.strip(),
+            }
+
+    # Some Mornye providers emit a warning with a title but no track index.
+    if not failures:
+        for line in stderr_text.splitlines():
+            match = re.search(
+                r"\\[([^\\]]+)\\]\\s+Download FAILED for ['\\\"](.+?)['\\\"].*?:\\s*(.+)$",
+                line,
+                re.IGNORECASE,
+            )
+            if match:
+                provider, title, detail = match.groups()
+                failures[title] = {
+                    "title": title,
+                    "provider": provider,
+                    "status": "failed",
+                    "error": detail.strip(),
+                }
+    return list(failures.values())
+
+
 def _read_report(report_text: str, url: str, return_code: int, stderr_tail: str) -> RunResult:
     if not report_text.strip():
         detail = stderr_tail or f"Mornye exited with status {return_code} without producing a JSON report."
@@ -103,20 +135,30 @@ def _read_report(report_text: str, url: str, return_code: int, stderr_tail: str)
         return RunResult(url, 0, 0, 1, [], detail[-4000:])
     if not isinstance(report, dict) or report.get("schema_version") != 1:
         return RunResult(url, 0, 0, 1, [], "Mornye returned an unrecognized JSON report.")
+
     tracks = report.get("tracks", [])
     summary = report.get("summary", {})
     if not isinstance(tracks, list):
         tracks = []
     if not isinstance(summary, dict):
         summary = {}
+
     downloaded = int(summary.get("downloaded", 0) or 0)
     skipped = int(summary.get("skipped", 0) or 0)
-    failed = int(summary.get("failed", 0) or 0)
+    reported_failed = int(summary.get("failed", 0) or 0)
+    log_failures = _extract_log_failures(stderr_tail)
+    json_failed_tracks = sum(1 for track in tracks if isinstance(track, dict) and track.get("status") == "failed")
+    failed = max(reported_failed, json_failed_tracks, len(log_failures))
+
+    # Keep provider diagnostics visible even when Mornye's summary under-reports failures.
+    missing_log_records = max(0, len(log_failures) - json_failed_tracks)
+    tracks.extend(log_failures[:missing_log_records])
+
     error = None
     if return_code != 0:
         error = stderr_tail[-4000:] or f"Mornye exited with status {return_code}."
     elif failed:
-        error = f"{failed} track(s) failed. See the per-track errors in the results below."
+        error = f"{failed} track(s) failed. Provider diagnostics were collected from Mornye's output."
     return RunResult(url, downloaded, skipped, failed, tracks, error)
 
 

@@ -5,7 +5,7 @@ from .core import DEFAULT_SERVICES, configure_mornye_registry, parse_links, run_
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Processa listas de links Spotify em lote com os provedores Mornye.")
-    parser.add_argument("links", nargs="*", help="Links Spotify (faixa, álbum ou playlist)")
+    parser.add_argument("links", nargs="*", help="Links Spotify (faixa, álbum, playlist ou artista)")
     parser.add_argument("-i", "--input", help="Arquivo de texto com um link por linha")
     parser.add_argument("-o", "--output", default="Music", help="Pasta da biblioteca")
     parser.add_argument("--service", action="append", default=None, help="ID de extensão Mornye; substitui a lista padrão (repetível)")

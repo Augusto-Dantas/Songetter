@@ -8,6 +8,11 @@ from songetter.core import (
     DEFAULT_SERVICES,
     MORNYE_REGISTRY,
     _read_report,
+    RunResult,
+    _merge_provider_tracks,
+    _parse_provider_cooldown,
+    _active_provider_cooldown,
+    _record_provider_cooldown,
     configure_mornye_registry,
     parse_links,
     write_m3u8,
@@ -122,3 +127,87 @@ def test_run_download_rejects_zero_concurrency(tmp_path):
 
     with pytest.raises(ValueError, match="Concurrent download count"):
         run_download("https://open.spotify.com/track/abc123", tmp_path, max_concurrent_downloads=0)
+
+
+def test_parse_provider_cooldown_from_mornye_warning():
+    event = _parse_provider_cooldown(
+        "WARNING: [ext:amazon] Download FAILED for 'Stronger': verification paused after a failed attempt — next try in 17 min",
+        "ext:amazon",
+    )
+    assert event is not None
+    assert event["provider"] == "ext:amazon"
+    assert event["retry_after_seconds"] == 17 * 60
+    assert event["status"] == "cooldown"
+
+
+def test_parse_provider_cooldown_from_indexed_failure():
+    event = _parse_provider_cooldown(
+        "  ✗ [#3] ext:deezer · rate limit reached; retry in 45 seconds",
+        "ext:amazon",
+    )
+    assert event is not None
+    assert event["provider"] == "ext:deezer"
+    assert event["retry_after_seconds"] == 45
+
+
+def test_provider_cooldown_is_persisted_until_expiry(monkeypatch, tmp_path):
+    from songetter import core
+
+    monkeypatch.setattr(core, "_cooldown_state_path", lambda: tmp_path / "provider_cooldowns.json")
+    event = {
+        "provider": "ext:amazon",
+        "until": __import__("time").time() + 600,
+        "reason": "verification paused",
+    }
+    _record_provider_cooldown(event)
+    active = _active_provider_cooldown("ext:amazon")
+    assert active is not None
+    assert active["retry_after_seconds"] > 0
+
+
+def test_provider_track_merge_prefers_successful_fallback():
+    first = [{"title": "Stronger", "artists": "Kanye West", "album": "Graduation", "status": "failed"}]
+    second = [{"title": "Stronger", "artists": "Kanye West", "album": "Graduation", "status": "downloaded"}]
+    merged = _merge_provider_tracks(first, second)
+    assert len(merged) == 1
+    assert merged[0]["status"] == "downloaded"
+
+
+def test_run_download_moves_to_next_provider_after_cooldown(monkeypatch, tmp_path):
+    from songetter import core
+
+    calls = []
+    monkeypatch.setattr(core, "_active_provider_cooldown", lambda provider: None)
+
+    def fake_run(url, output_dir, services, lyrics_providers, timeout, concurrency, progress, metrics):
+        provider = services[0]
+        calls.append(provider)
+        if provider == "ext:amazon":
+            return RunResult(
+                url, 0, 0, 0, [],
+                "ext:amazon entered cooldown",
+                0.1,
+                [{
+                    "provider": provider,
+                    "status": "cooldown",
+                    "retry_after_seconds": 900,
+                    "until": __import__("time").time() + 900,
+                    "reason": "verification paused",
+                }],
+            )
+        return RunResult(
+            url, 1, 0, 0,
+            [{"title": "Stronger", "artists": "Kanye West", "album": "Graduation", "status": "downloaded"}],
+        )
+
+    monkeypatch.setattr(core, "_run_download_once", fake_run)
+    result = core.run_download(
+        "https://open.spotify.com/album/abc123",
+        tmp_path,
+        services=["ext:amazon", "ext:deezer"],
+    )
+    assert calls == ["ext:amazon", "ext:deezer"]
+    assert result.downloaded == 1
+    assert result.failed == 0
+    assert result.tracks[0]["status"] == "downloaded"
+    assert result.provider_status[0]["status"] == "cooldown"

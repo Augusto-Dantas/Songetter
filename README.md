@@ -39,7 +39,7 @@ pip install -e .
 streamlit run app.py
 ```
 
-Open `http://localhost:8501`, paste your Spotify links, adjust the provider list or priority order, and choose the maximum number of tracks downloaded simultaneously (1–8). The web app streams Mornye's live stderr progress into the page, displays recent log lines, and updates the progress bar as track counters are reported (for example, `Track [3/24]`). The overall progress reaches 100% when the link finishes.
+Open `http://localhost:8501`, paste your Spotify links, adjust the provider list or priority order, and choose the maximum number of tracks downloaded simultaneously (1–8). The web app streams Mornye's live stderr progress, measures the growth of audio files in the destination folder to show current throughput, and estimates remaining time from observed track completion rate. The ETA is marked as calculating until enough track completions are available. It also surfaces per-track provider failures, process startup errors, timeouts, invalid/missing JSON reports, and non-zero process exits. Provider cooldown or verification errors are reported rather than blindly retried, since retrying during a provider-imposed cooldown can make the wait worse.
 
 ## Command-line interface
 

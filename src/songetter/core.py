@@ -1,7 +1,5 @@
 from __future__ import annotations
 import json, os, re, shutil, subprocess
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -51,14 +49,16 @@ def _mornye_command() -> str:
     return executable
 
 def run_download(url: str, output_dir: Path, services: list[str] | None = None,
-                 lyrics_providers: list[str] | None = None, timeout: int = 3600) -> RunResult:
+                 lyrics_providers: list[str] | None = None, timeout: int = 3600,
+                 max_concurrent_downloads: int = 2) -> RunResult:
     configure_mornye_registry()
     selected = list(services or DEFAULT_SERVICES)
     if not selected: raise ValueError("Select at least one Mornye provider.")
+    if max_concurrent_downloads < 1: raise ValueError("Concurrent download count must be at least 1.")
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [_mornye_command(), url, str(output_dir), "--json", "--use-artist-subfolders",
                "--use-album-subfolders", "--lyrics-providers", *(lyrics_providers or ["apple", "lrclib"]),
-               "--save-lrc", "--service", *selected]
+               "--save-lrc", "--max-concurrent", str(max_concurrent_downloads), "--service", *selected]
     completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout,
                                env=os.environ.copy(), check=False)
     try: report = json.loads(completed.stdout)
@@ -71,42 +71,6 @@ def run_download(url: str, output_dir: Path, services: list[str] | None = None,
                      int(summary.get("failed", 0)), tracks,
                      None if completed.returncode == 0 else (completed.stderr.strip()[-4000:] or "Mornye exited with an error."))
 
-
-def run_downloads(
-    urls: Sequence[str],
-    output_dir: Path,
-    services: list[str] | None = None,
-    lyrics_providers: list[str] | None = None,
-    max_workers: int = 3,
-    on_complete: Callable[[int, int, RunResult], None] | None = None,
-) -> list[RunResult]:
-    """Download multiple Spotify URLs concurrently and return results in input order."""
-    if max_workers < 1:
-        raise ValueError("Worker count must be at least 1.")
-    configure_mornye_registry()
-    results: list[RunResult | None] = [None] * len(urls)
-    if not urls:
-        return []
-
-    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="songetter") as executor:
-        futures = {
-            executor.submit(run_download, url, output_dir, services, lyrics_providers): index
-            for index, url in enumerate(urls)
-        }
-        completed = 0
-        for future in as_completed(futures):
-            index = futures[future]
-            url = urls[index]
-            try:
-                result = future.result()
-            except Exception as exc:
-                result = RunResult(url, 0, 0, 0, [], str(exc))
-            results[index] = result
-            completed += 1
-            if on_complete is not None:
-                on_complete(completed, len(urls), result)
-
-    return [result for result in results if result is not None]
 
 def write_m3u8(tracks: list[dict], destination: Path, library_root: Path) -> int:
     destination.parent.mkdir(parents=True, exist_ok=True)

@@ -56,7 +56,9 @@ Supported Spotify links include tracks, albums, playlists, and artist pages. Loc
 
 ## Output
 
-The library is organized into artist and album subfolders. Mornye handles tags and artwork, downloads lyrics when available, and Songetter exports an overall `.m3u8` playlist using relative paths. Tracks within each Spotify link are downloaded concurrently by Mornye; links are processed sequentially, and the output playlist is assembled after all links finish.
+Mornye handles tags and artwork, embeds lyrics directly into track metadata when available (no `.lrc` sidecar files are created), and Songetter exports an overall `.m3u8` playlist using relative paths. Tracks within each Spotify link are downloaded concurrently by Mornye; links are processed sequentially, and the output playlist is assembled after all links finish.
+
+For server-side library organization, `songetter.organizer` and `songetter.deduplicator` flatten libraries to `{Artist} - {Title}.{ext}` and retain the highest-quality copy per track. See `NEXT_STEPS.md` for the ongoing server-side CSV ingestion and FastAPI roadmap, and `Dockerfile` for containerized execution.
 
 Only download content you are authorized to access, and comply with the terms of each service.
 

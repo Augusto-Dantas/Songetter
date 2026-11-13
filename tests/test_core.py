@@ -212,3 +212,42 @@ def test_run_download_moves_to_next_provider_after_cooldown(monkeypatch, tmp_pat
     assert result.failed == 0
     assert result.tracks[0]["status"] == "downloaded"
     assert result.provider_status[0]["status"] == "cooldown"
+
+
+def test_run_download_once_omits_save_lrc_and_keeps_lyrics_providers(monkeypatch, tmp_path):
+    from songetter import core
+
+    captured_cmd = []
+
+    class DummyProcess:
+        def __init__(self, cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            self.stderr = iter([])
+            self._stdout = kwargs["stdout"]
+
+        def poll(self):
+            return 0
+
+        def wait(self):
+            self._stdout.write(json.dumps({
+                "schema_version": 1,
+                "tracks": [],
+                "summary": {"downloaded": 0, "skipped": 0, "failed": 0},
+            }))
+            self._stdout.flush()
+            return 0
+
+    monkeypatch.setattr(core, "_mornye_command", lambda: "mornye")
+    monkeypatch.setattr(core.subprocess, "Popen", lambda cmd, **kwargs: DummyProcess(cmd, **kwargs))
+
+    core._run_download_once(
+        "https://open.spotify.com/track/abc123",
+        tmp_path,
+        services=["ext:tidal-web"],
+        lyrics_providers=["apple", "lrclib"],
+    )
+
+    assert "--lyrics-providers" in captured_cmd
+    assert "apple" in captured_cmd
+    assert "lrclib" in captured_cmd
+    assert "--save-lrc" not in captured_cmd

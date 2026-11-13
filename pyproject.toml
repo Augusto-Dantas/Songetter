@@ -9,7 +9,24 @@ description = "Spotify link batch manager powered by Mornye-Python"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
-dependencies = ["mornye>=2.0.6", "streamlit>=1.40"]
+dependencies = [
+    "mornye>=2.0.6",
+    "streamlit>=1.40",
+    "mutagen>=1.47",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.12",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "soundfile>=0.12",
+    "numpy>=1.26",
+    "pillow>=10.0",
+    "httpx>=0.27",
+]
 
 [project.scripts]
 songetter = "songetter.cli:main"

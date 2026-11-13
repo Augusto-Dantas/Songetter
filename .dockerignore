@@ -1,0 +1,28 @@
+# Exclude local download libraries and media caches
+downloads/
+**/downloads/
+Music/
+**/Music/
+
+# Virtual environments and Python caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Git, IDE, and agent metadata
+.git/
+.gitignore
+.github/
+.agents/
+.idea/
+.vscode/
+*.log

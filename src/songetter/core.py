@@ -306,7 +306,7 @@ def _run_download_once(
         _mornye_command(), url, str(output_dir), "--json",
         "--use-artist-subfolders", "--use-album-subfolders",
         "--lyrics-providers", *(lyrics_providers or ["apple", "lrclib"]),
-        "--save-lrc", "--max-concurrent", str(max_concurrent_downloads),
+        "--max-concurrent", str(max_concurrent_downloads),
         "--service", *selected,
     ]
 

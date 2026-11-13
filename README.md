@@ -1,22 +1,18 @@
 # Songetter
 
-Aplicação Python para processar vários links do Spotify em lote usando [Mornye-Python](https://github.com/mornyeapp/Mornye-Python).
+Aplicação Python para processar links Spotify em lote usando [Mornye-Python](https://github.com/mornyeapp/Mornye-Python) e os provedores do [Mornye Extension Store](https://github.com/mornyeapp/Mornye-Extension).
 
-## Recursos
+## Provedores integrados
 
-- Links de faixas, álbuns e playlists em lote.
-- Interface web local com Streamlit e CLI.
-- Organização por artista e álbum.
-- Tags e capa incorporadas ao áudio pelo Mornye.
-- Letras sincronizadas incorporadas às tags e exportadas em arquivos `.lrc`.
-- Playlist geral `.m3u8` com caminhos relativos.
-- Relatório de faixas baixadas, existentes e com falha.
+O Songetter adiciona automaticamente o catálogo unificado, sem apagar registries que você já configurou:
 
-## Requisitos
+https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry-unified.json
 
-Python 3.11+ e um provedor de áudio compatível com Mornye instalado e configurado.
+Provedores padrão (ordem de fallback): `ext:tidal-web`, `ext:qobuz-web`, `ext:deezer`, `ext:amazon`, `ext:ytmusic-spotiflac`, `ext:soundcloud` e `ext:jiosaavn`.
 
-**Importante:** Mornye não inclui provedores de áudio nem um registry padrão. Songetter não instala extensões automaticamente. Escolha, revise e instale explicitamente uma extensão de um registry em que confie. Use apenas conteúdo que você tenha autorização para obter e respeite os termos dos serviços.
+O catálogo inclui também `utilities`, pacote Python de utilitários de metadados, sessão e resolução de navegador. O catálogo unificado separa os runtimes Python e JavaScript; Mornye seleciona os pacotes compatíveis e instala os provedores necessários a partir do registry.
+
+`beatport` e `jellyfin` não entram na lista padrão porque podem exigir infraestrutura, conta ou configuração específica; podem ser selecionados manualmente quando estiverem preparados. Extensões são código de terceiros: revise manifests, permissões, requisitos, licenças e termos dos serviços.
 
 ## Instalação
 
@@ -24,16 +20,10 @@ Python 3.11+ e um provedor de áudio compatível com Mornye instalado e configur
 git clone https://github.com/Augusto-Dantas/Songetter.git
 cd Songetter
 python -m venv .venv
-# Linux/macOS
-source .venv/bin/activate
-# Windows PowerShell: .venv\\Scripts\\Activate.ps1
+source .venv/bin/activate  # Windows: .venv\\Scripts\\Activate.ps1
 python -m pip install --upgrade pip
 pip install -e .
 ```
-
-## Configurar Mornye
-
-Siga a [documentação oficial](https://github.com/mornyeapp/Mornye-Python) para configurar um registry e instalar uma extensão de provedor. Songetter recebe os IDs das extensões já instaladas, por exemplo `ext:tidal-web`; esse exemplo não instala nem recomenda o provedor.
 
 ## Interface web
 
@@ -41,35 +31,23 @@ Siga a [documentação oficial](https://github.com/mornyeapp/Mornye-Python) para
 streamlit run app.py
 ```
 
-Abra o endereço local informado pelo Streamlit (normalmente `http://localhost:8501`), cole os links e informe os serviços configurados.
+Abra `http://localhost:8501`, cole os links e ajuste a lista/ordem dos provedores se desejar.
 
-## Linha de comando
-
-```bash
-songetter "https://open.spotify.com/track/ID" "https://open.spotify.com/playlist/ID" --service ext:SEU-PROVEDOR
-```
-
-Ou use um arquivo `links.txt`, com um link por linha:
+## CLI
 
 ```bash
-songetter --input links.txt --output ./Music --service ext:SEU-PROVEDOR
+songetter <link-spotify>
+songetter --input links.txt --output ./Music
+songetter --input links.txt --service ext:tidal-web --service ext:qobuz-web
 ```
 
-Repita `--service` para incluir mais de uma extensão.
+O último exemplo substitui a lista padrão. Registries adicionais podem ser configurados em `MORNYE_REGISTRIES` (separados por vírgula); os existentes são preservados.
 
 ## Saída
 
-```text
-Music/
-├── Songetter.m3u8
-└── Artista/
-    └── Álbum/
-        ├── Faixa.flac
-        ├── Faixa.lrc
-        └── ...
-```
+A biblioteca é organizada por artista/álbum. Mornye incorpora tags e capas, incorpora letras quando disponíveis e o Songetter exporta `.lrc` e uma playlist geral `.m3u8` com caminhos relativos.
 
-A capa é incorporada nos metadados do áudio pelo Mornye. Arquivos LRC são criados quando há letras disponíveis. A playlist é gerada a partir dos caminhos confirmados no relatório JSON do Mornye e ignora arquivos ausentes ou faixas com falha.
+Use somente conteúdo que você tenha autorização para baixar e respeite os termos dos serviços.
 
 ## Testes
 
@@ -80,4 +58,4 @@ pytest
 
 ## Licença
 
-MIT. Consulte também as licenças e os termos dos provedores e extensões que decidir utilizar.
+MIT. Consulte também as licenças dos provedores e extensões.

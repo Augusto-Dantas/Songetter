@@ -39,7 +39,7 @@ pip install -e .
 streamlit run app.py
 ```
 
-Open `http://localhost:8501`, paste your Spotify links, adjust the provider list or priority order, and choose the maximum number of tracks downloaded simultaneously (1–8). The progress bar updates as each Spotify link finishes.
+Open `http://localhost:8501`, paste your Spotify links, adjust the provider list or priority order, and choose the maximum number of tracks downloaded simultaneously (1–8). The web app streams Mornye's live stderr progress into the page, displays recent log lines, and updates the progress bar as track counters are reported (for example, `Track [3/24]`). The overall progress reaches 100% when the link finishes.
 
 ## Command-line interface
 

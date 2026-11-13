@@ -39,24 +39,24 @@ pip install -e .
 streamlit run app.py
 ```
 
-Open `http://localhost:8501`, paste your Spotify links, adjust the provider list or priority order, and choose the number of concurrent downloads (1–8). The progress bar updates whenever a link finishes.
+Open `http://localhost:8501`, paste your Spotify links, adjust the provider list or priority order, and choose the maximum number of tracks downloaded simultaneously (1–8). The progress bar updates as each Spotify link finishes.
 
 ## Command-line interface
 
 ```bash
 songetter <spotify-link>
 songetter --input links.txt --output ./Music
-songetter --input links.txt --workers 4
+songetter --input links.txt --max-concurrent 4
 songetter --input links.txt --service ext:tidal-web --service ext:qobuz-web
 ```
 
-The `--workers` option controls how many Spotify links are processed concurrently (default: 3). Use `--workers 1` to disable concurrency. The provider-selection example replaces the default provider list. Additional registries can be configured through `MORNYE_REGISTRIES` (comma-separated); existing entries are preserved.
+The `--max-concurrent` option controls how many tracks Mornye downloads at the same time (default: 2). Use `--max-concurrent 1` for sequential track downloads. The provider-selection example replaces the default provider list. Additional registries can be configured through `MORNYE_REGISTRIES` (comma-separated); existing entries are preserved.
 
 Supported Spotify links include tracks, albums, playlists, and artist pages. Localized URLs such as `https://open.spotify.com/intl-en/artist/...` are normalized automatically.
 
 ## Output
 
-The library is organized into artist and album subfolders. Mornye handles tags and artwork, downloads lyrics when available, and Songetter exports an overall `.m3u8` playlist using relative paths. Multiple input links are processed concurrently; the output playlist is assembled after all workers finish.
+The library is organized into artist and album subfolders. Mornye handles tags and artwork, downloads lyrics when available, and Songetter exports an overall `.m3u8` playlist using relative paths. Tracks within each Spotify link are downloaded concurrently by Mornye; links are processed sequentially, and the output playlist is assembled after all links finish.
 
 Only download content you are authorized to access, and comply with the terms of each service.
 

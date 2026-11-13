@@ -212,7 +212,7 @@ def run_download(
                     if run_match:
                         total_tracks = int(run_match.group(1))
 
-                    if re.search(r"(?:✓|✔|⏭|✗)\s", line) or re.search(r"\b(?:downloaded|existing|failed)=\d+", line):
+                    if re.match(r"^\s*[✓✔⏭✗]\s", line):
                         terminal_tracks += 1
 
                 now = time.monotonic()

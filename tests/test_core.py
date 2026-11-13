@@ -77,6 +77,34 @@ def test_read_report_preserves_provider_failures():
     assert result.tracks[0]["error"] == "verification paused"
 
 
+
+def test_read_report_counts_provider_log_failures_missing_from_summary():
+    report = {
+        "schema_version": 1,
+        "tracks": [],
+        "summary": {"downloaded": 0, "skipped": 0, "failed": 0},
+    }
+    stderr = (
+        "  ✗  [#3] ext:amazon  ·  verification paused after a failed attempt\\n"
+        "  ✗  [#7] ext:deezer  ·  Failed to resolve Deezer download\\n"
+    )
+    result = _read_report(json.dumps(report), "spotify-url", 0, stderr)
+    assert result.failed == 2
+    assert len(result.tracks) == 2
+    assert {track["provider"] for track in result.tracks} == {"ext:amazon", "ext:deezer"}
+    assert "2 track(s) failed" in result.error
+
+
+def test_extract_provider_warning_without_track_index():
+    from songetter.core import _extract_log_failures
+
+    failures = _extract_log_failures(
+        "WARNING: [ext:amazon] Download FAILED for 'Stronger' after 0.0s: verification paused"
+    )
+    assert len(failures) == 1
+    assert failures[0]["title"] == "Stronger"
+    assert failures[0]["status"] == "failed"
+
 def test_read_report_handles_invalid_json_without_name_error():
     result = _read_report("{broken", "spotify-url", 1, "provider error")
     assert result.failed == 1

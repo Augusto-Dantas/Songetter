@@ -42,8 +42,22 @@ if start:
             raise ValueError("Select at least one Mornye provider.")
 
         all_tracks, totals = [], {"downloaded": 0, "skipped": 0, "failed": 0}
-        progress = st.progress(0, text="Preparing downloads...")
+        progress = st.progress(0, text="Starting Mornye...")
         status = st.empty()
+        live_log = st.empty()
+        progress_lines = []
+
+        def show_progress(message: str) -> None:
+            progress_lines.append(message)
+            del progress_lines[:-8]
+            live_log.code("\\n".join(progress_lines), language="text")
+            track_match = __import__("re").search(r"Track \\[(\\d+)/(\\d+)\\]", message)
+            if track_match:
+                current, total = map(int, track_match.groups())
+                if total:
+                    progress.progress(min(current / total, 1.0), text=f"Processing track {current} of {total}")
+            elif message.startswith("[RUN]"):
+                progress.progress(0, text="Mornye is resolving the Spotify link...")
         for index, url in enumerate(links, 1):
             status.write(f"Processing link {index} of {len(links)}: {url}")
             result = run_download(
@@ -52,13 +66,15 @@ if start:
                 services,
                 lyrics,
                 max_concurrent_downloads=concurrency_value,
+                progress_callback=show_progress,
             )
             all_tracks.extend(result.tracks)
             for key in totals:
                 totals[key] += getattr(result, key)
             if result.error:
                 st.error(f"{url}: {result.error}")
-            progress.progress(index / len(links), text=f"Completed {index} of {len(links)} links")
+            if index == len(links):
+                progress.progress(1.0, text=f"Completed {index} of {len(links)} links")
 
         playlist = output / "Songetter.m3u8"
         count = write_m3u8(all_tracks, playlist, output)

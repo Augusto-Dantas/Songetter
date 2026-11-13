@@ -90,8 +90,8 @@ def test_read_report_counts_provider_log_failures_missing_from_summary():
         "summary": {"downloaded": 0, "skipped": 0, "failed": 0},
     }
     stderr = (
-        "  ✗  [#3] ext:amazon  ·  verification paused after a failed attempt\\n"
-        "  ✗  [#7] ext:deezer  ·  Failed to resolve Deezer download\\n"
+        "  ✗  [#3] ext:amazon  ·  verification paused after a failed attempt\n"
+        "  ✗  [#7] ext:deezer  ·  Failed to resolve Deezer download\n"
     )
     result = _read_report(json.dumps(report), "spotify-url", 0, stderr)
     assert result.failed == 2

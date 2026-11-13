@@ -32,8 +32,13 @@ def parse_links(raw: str) -> list[str]:
         host = (parsed.hostname or "").lower()
         if parsed.scheme not in {"http", "https"} or host not in SPOTIFY_HOSTS:
             raise ValueError(f"Link Spotify inválido: {candidate}")
-        if host == "open.spotify.com" and not re.match(r"^/(track|album|playlist|artist)/[A-Za-z0-9]+", parsed.path):
-            raise ValueError(f"Tipo de link Spotify não suportado: {candidate}")
+        if host == "open.spotify.com":
+            # Spotify pode incluir um prefixo de idioma, por exemplo /intl-pt/artist/...
+            canonical_path = re.sub(r"^/intl-[a-z]{2}(?:-[a-z]{2})?/", "/", parsed.path, flags=re.IGNORECASE)
+            if not re.match(r"^/(track|album|playlist|artist)/[A-Za-z0-9]+/?$", canonical_path):
+                raise ValueError(f"Tipo de link Spotify não suportado: {candidate}")
+            # Entrega ao Mornye a URL canônica, sem o prefixo de localização.
+            candidate = parsed._replace(path=canonical_path).geturl()
         if candidate not in found: found.append(candidate)
     if not found: raise ValueError("Informe pelo menos um link do Spotify.")
     return found

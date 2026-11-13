@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 SPOTIFY_HOSTS = {"open.spotify.com", "spotify.link"}
 AUDIO_SUFFIXES = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".aiff", ".wv", ".tta"}
-MORNYE_REGISTRY = "https://raw.githubusercontent.com/mornyeapp/Morne-Extension/main/registry-unified.json"
+MORNYE_REGISTRY = "https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry-unified.json"
 DEFAULT_SERVICES = ["ext:tidal-web", "ext:qobuz-web", "ext:deezer", "ext:amazon", "ext:ytmusic-spotiflac", "ext:soundcloud", "ext:jiosaavn"]
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
-import json, os, re, shutil, subprocess
+import json, os, re, shutil, subprocess, tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -50,7 +51,7 @@ def _mornye_command() -> str:
 
 def run_download(url: str, output_dir: Path, services: list[str] | None = None,
                  lyrics_providers: list[str] | None = None, timeout: int = 3600,
-                 max_concurrent_downloads: int = 2) -> RunResult:
+                 max_concurrent_downloads: int = 2, progress_callback: Callable[[str], None] | None = None) -> RunResult:
     configure_mornye_registry()
     selected = list(services or DEFAULT_SERVICES)
     if not selected: raise ValueError("Select at least one Mornye provider.")
@@ -59,9 +60,33 @@ def run_download(url: str, output_dir: Path, services: list[str] | None = None,
     command = [_mornye_command(), url, str(output_dir), "--json", "--use-artist-subfolders",
                "--use-album-subfolders", "--lyrics-providers", *(lyrics_providers or ["apple", "lrclib"]),
                "--save-lrc", "--max-concurrent", str(max_concurrent_downloads), "--service", *selected]
-    completed = subprocess.run(command, capture_output=True, text=True, timeout=timeout,
-                               env=os.environ.copy(), check=False)
-    try: report = json.loads(completed.stdout)
+    # Keep Mornye's JSON report separate from its live stderr progress stream.
+    # In non-interactive environments Mornye emits readable progress lines to stderr.
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as report_file:
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=report_file,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+                env=os.environ.copy(),
+            )
+            assert process.stderr is not None
+            for line in process.stderr:
+                message = line.rstrip()
+                if message and progress_callback is not None:
+                    progress_callback(message)
+            return_code = process.wait(timeout=timeout)
+            report_file.seek(0)
+            report_text = report_file.read()
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+            return RunResult(url, 0, 0, 1, [], f"Mornye timed out after {timeout} seconds.")
+    try: report = json.loads(report_text)
     except json.JSONDecodeError:
         details = (completed.stderr or completed.stdout or "Mornye did not return valid JSON").strip()
         return RunResult(url, 0, 0, 0, [], details[-4000:])
@@ -69,7 +94,7 @@ def run_download(url: str, output_dir: Path, services: list[str] | None = None,
     tracks, summary = report.get("tracks", []), report.get("summary", {})
     return RunResult(url, int(summary.get("downloaded", 0)), int(summary.get("skipped", 0)),
                      int(summary.get("failed", 0)), tracks,
-                     None if completed.returncode == 0 else (completed.stderr.strip()[-4000:] or "Mornye exited with an error."))
+                     None if return_code == 0 else f"Mornye exited with status {return_code}.")
 
 
 def write_m3u8(tracks: list[dict], destination: Path, library_root: Path) -> int:

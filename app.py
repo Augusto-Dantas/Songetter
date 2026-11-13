@@ -15,8 +15,8 @@ with st.sidebar:
     st.caption("Catálogo: " + MORNYE_REGISTRY)
     st.info("O Songetter preserva registries existentes e adiciona o catálogo Mornye. Extensões são código de terceiros; revise requisitos e permissões.")
 st.subheader("Links do Spotify")
-raw_links = st.text_area("Cole links de faixas, álbuns ou playlists (um por linha)", height=220,
-    placeholder="https://open.spotify.com/playlist/...\nhttps://open.spotify.com/track/...")
+raw_links = st.text_area("Cole links de faixas, álbuns, playlists ou artistas (um por linha)", height=220,
+    placeholder="https://open.spotify.com/playlist/...\nhttps://open.spotify.com/artist/...")
 start = st.button("Iniciar processamento", type="primary", use_container_width=True)
 if start:
     try:

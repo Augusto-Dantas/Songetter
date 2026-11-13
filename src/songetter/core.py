@@ -59,6 +59,8 @@ def run_download(
     timeout: int = 3600,
 ) -> RunResult:
     """Run Mornye for one Spotify URL and parse its machine-readable report."""
+    if not services:
+        raise ValueError("Configure pelo menos um serviço Mornye instalado (ex.: ext:seu-provedor).")
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [
         _mornye_command(), url, str(output_dir),

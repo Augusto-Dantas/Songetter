@@ -109,7 +109,7 @@ def _extract_log_failures(stderr_text: str) -> list[dict]:
     if not failures:
         for line in stderr_text.splitlines():
             match = re.search(
-                r"\[([^\]]+)\]\s+Download FAILED for ['\\"](.+?)['\\"].*?:\s*(.+)$",
+                r"""\[([^\]]+)\]\s+Download FAILED for ['"](.+?)['"].*?:\s*(.+)$""",
                 line,
                 re.IGNORECASE,
             )

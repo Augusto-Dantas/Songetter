@@ -235,7 +235,7 @@ def _parse_provider_cooldown(line: str, default_provider: str) -> dict | None:
 
     duration_match = re.search(
         r"(?:next\s+try|retry|try\s+again)\s+in\s+(\d+)\s*"
-        r"(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\\b",
+        r"(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\b",
         line,
         re.IGNORECASE,
     )

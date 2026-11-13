@@ -14,6 +14,10 @@ O catálogo inclui também `utilities`, pacote Python de utilitários de metadad
 
 `beatport` e `jellyfin` não entram na lista padrão porque podem exigir infraestrutura, conta ou configuração específica; podem ser selecionados manualmente quando estiverem preparados. Extensões são código de terceiros: revise manifests, permissões, requisitos, licenças e termos dos serviços.
 
+## Requisitos
+
+Python 3.11+, `mornye>=2.0.6` (instalado automaticamente pelo `pip install -e .`) e Node.js para os provedores JavaScript. O primeiro uso consulta o registry; a instalação das extensões pode exigir acesso à internet e configuração própria do provedor.
+
 ## Instalação
 
 ```bash

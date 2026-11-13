@@ -11,7 +11,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -30,6 +30,7 @@ class RunResult:
     tracks: list[dict]
     error: str | None = None
     elapsed_seconds: float = 0.0
+    provider_status: list[dict] = field(default_factory=list)
 
 
 def configure_mornye_registry() -> str:
@@ -162,7 +163,128 @@ def _read_report(report_text: str, url: str, return_code: int, stderr_tail: str)
     return RunResult(url, downloaded, skipped, failed, tracks, error)
 
 
-def run_download(
+
+
+_COOLDOWN_TERMS = (
+    "verification paused", "cooldown", "rate limit", "too many requests",
+    "http 429", "status 429", "temporarily blocked",
+)
+_COOLDOWN_LOCK = threading.Lock()
+
+
+def _cooldown_state_path() -> Path:
+    cache_root = Path(os.environ.get("XDG_CACHE_HOME") or (Path.home() / ".cache"))
+    return cache_root / "songetter" / "provider_cooldowns.json"
+
+
+def _load_cooldowns() -> dict:
+    path = _cooldown_state_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _save_cooldowns(data: dict) -> None:
+    path = _cooldown_state_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        # Cooldown persistence is best-effort; it must not interrupt downloads.
+        pass
+
+
+def _active_provider_cooldown(provider: str) -> dict | None:
+    with _COOLDOWN_LOCK:
+        data = _load_cooldowns()
+        entry = data.get(provider)
+        if not isinstance(entry, dict):
+            return None
+        until = float(entry.get("until", 0) or 0)
+        remaining = int(until - time.time())
+        if remaining <= 0:
+            data.pop(provider, None)
+            _save_cooldowns(data)
+            return None
+        return {**entry, "provider": provider, "retry_after_seconds": remaining}
+
+
+def _record_provider_cooldown(event: dict) -> None:
+    with _COOLDOWN_LOCK:
+        data = _load_cooldowns()
+        data[event["provider"]] = {
+            "until": float(event["until"]),
+            "reason": event["reason"],
+        }
+        _save_cooldowns(data)
+
+
+def _parse_provider_cooldown(line: str, default_provider: str) -> dict | None:
+    lowered = line.lower()
+    if not any(term in lowered for term in _COOLDOWN_TERMS):
+        return None
+
+    provider_match = re.search(r"\\[#\\d+\\]\\s+(\\S+)", line)
+    if not provider_match:
+        provider_match = re.search(r"\\[([^\\]]+)\\]", line)
+    provider = provider_match.group(1) if provider_match else default_provider
+
+    duration_match = re.search(
+        r"(?:next\\s+try|retry|try\\s+again)\\s+in\\s+(\\d+)\\s*"
+        r"(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\\b",
+        line,
+        re.IGNORECASE,
+    )
+    duration = 15 * 60
+    if duration_match:
+        amount = int(duration_match.group(1))
+        unit = duration_match.group(2).lower()
+        multiplier = 1 if unit.startswith("s") else 3600 if unit.startswith("h") else 60
+        duration = max(1, amount * multiplier)
+
+    return {
+        "provider": provider,
+        "retry_after_seconds": duration,
+        "until": time.time() + duration,
+        "reason": line.strip()[-1000:],
+        "status": "cooldown",
+    }
+
+
+def _track_identity(track: dict) -> str:
+    isrc = track.get("isrc") or track.get("ISRC")
+    if isrc:
+        return "isrc:" + str(isrc).strip().lower()
+    title = str(track.get("title") or "").strip().lower()
+    artists = track.get("artists") or track.get("artist") or ""
+    if isinstance(artists, list):
+        artists = ", ".join(str(item) for item in artists)
+    album = str(track.get("album") or "").strip().lower()
+    if title:
+        return "track:" + "|".join((title, str(artists).strip().lower(), album))
+    index = track.get("index") or track.get("position") or track.get("track_number")
+    if index is not None:
+        return "index:" + str(index)
+    return "unknown:" + str(id(track))
+
+
+def _merge_provider_tracks(existing: list[dict], incoming: list[dict]) -> list[dict]:
+    priority = {"failed": 0, "error": 0, "skipped": 1, "existing": 1, "downloaded": 2, "success": 2}
+    merged = {_track_identity(track): dict(track) for track in existing}
+    for track in incoming:
+        key = _track_identity(track)
+        previous = merged.get(key)
+        if previous is None or priority.get(str(track.get("status", "")).lower(), 0) >= priority.get(
+            str(previous.get("status", "")).lower(), 0
+        ):
+            merged[key] = dict(track)
+    return list(merged.values())
+
+def _run_download_once(
     url: str,
     output_dir: Path,
     services: list[str] | None = None,
@@ -192,6 +314,7 @@ def run_download(
     stderr_tail: deque[str] = deque(maxlen=80)
     report_text = ""
     process = None
+    cooldown_event = None
     total_tracks = 0
     terminal_tracks = 0
     last_metrics_at = started
@@ -250,6 +373,14 @@ def run_download(
                     stderr_tail.append(line)
                     _safe_callback(progress_callback, line)
 
+                    cooldown_event = _parse_provider_cooldown(line, selected[0])
+                    if cooldown_event and process.poll() is None:
+                        _safe_callback(
+                            progress_callback,
+                            f"[CIRCUIT BREAKER] {selected[0]} paused; switching to the next provider.",
+                        )
+                        process.kill()
+
                     run_match = re.search(r"\[RUN\]\s+(\d+)\s+track", line, re.IGNORECASE)
                     if run_match:
                         total_tracks = int(run_match.group(1))
@@ -290,6 +421,15 @@ def run_download(
             time.monotonic() - started,
         )
 
+    if cooldown_event:
+        result = RunResult(
+            url, 0, 0, 0, [],
+            f"{cooldown_event['provider']} entered cooldown; remaining tracks will be offered to the next provider.",
+            time.monotonic() - started,
+            [cooldown_event],
+        )
+        return result
+
     result = _read_report(report_text, url, return_code, "\n".join(stderr_tail))
     result.elapsed_seconds = time.monotonic() - started
     _safe_callback(metrics_callback, {
@@ -302,6 +442,120 @@ def run_download(
     })
     return result
 
+
+
+def run_download(
+    url: str,
+    output_dir: Path,
+    services: list[str] | None = None,
+    lyrics_providers: list[str] | None = None,
+    timeout: int = 3600,
+    max_concurrent_downloads: int = 2,
+    progress_callback: Callable[[str], None] | None = None,
+    metrics_callback: Callable[[dict], None] | None = None,
+) -> RunResult:
+    """Run providers in priority order, opening a circuit when one reports cooldown.
+
+    Mornye is invoked once per provider. It indexes the destination and skips audio
+    already downloaded by an earlier provider, so subsequent providers only need
+    to fill the remaining gaps.
+    """
+    started = time.monotonic()
+    selected = list(services or DEFAULT_SERVICES)
+    if not selected:
+        raise ValueError("Select at least one Mornye provider.")
+    if max_concurrent_downloads < 1:
+        raise ValueError("Concurrent download count must be at least 1.")
+
+    merged_tracks: list[dict] = []
+    provider_status: list[dict] = []
+    last_error = None
+    downloaded_fallback = skipped_fallback = failed_fallback = 0
+    ran_provider = False
+
+    for provider in selected:
+        active = _active_provider_cooldown(provider)
+        if active:
+            provider_status.append({
+                "provider": provider,
+                "status": "cooldown",
+                "retry_after_seconds": active["retry_after_seconds"],
+                "reason": active.get("reason", "Provider is in cooldown from an earlier run."),
+            })
+            _safe_callback(
+                progress_callback,
+                f"[CIRCUIT BREAKER] Skipping {provider}; cooldown has {active['retry_after_seconds']} seconds remaining.",
+            )
+            continue
+
+        _safe_callback(progress_callback, f"[FALLBACK] Trying provider {provider}.")
+        result = _run_download_once(
+            url,
+            output_dir,
+            [provider],
+            lyrics_providers,
+            timeout,
+            max_concurrent_downloads,
+            progress_callback,
+            metrics_callback,
+        )
+        ran_provider = True
+
+        if result.provider_status and result.provider_status[0].get("status") == "cooldown":
+            event = result.provider_status[0]
+            _record_provider_cooldown(event)
+            provider_status.append(event)
+            last_error = result.error
+            continue
+
+        provider_status.append({
+            "provider": provider,
+            "status": "completed",
+            "downloaded": result.downloaded,
+            "skipped": result.skipped,
+            "failed": result.failed,
+        })
+        merged_tracks = _merge_provider_tracks(merged_tracks, result.tracks)
+        downloaded_fallback = max(downloaded_fallback, result.downloaded)
+        skipped_fallback = max(skipped_fallback, result.skipped)
+        failed_fallback = max(failed_fallback, result.failed)
+        if result.error:
+            last_error = result.error
+
+        # A complete report with no failed tracks means no later provider is needed.
+        if result.failed == 0 and result.tracks:
+            break
+
+    if not ran_provider:
+        last_error = "All configured providers are currently in cooldown. Wait for their retry windows or choose other providers."
+
+    if merged_tracks:
+        downloaded = sum(1 for track in merged_tracks if track.get("status") in {"downloaded", "success"})
+        skipped = sum(1 for track in merged_tracks if track.get("status") in {"skipped", "existing"})
+        failed = sum(1 for track in merged_tracks if track.get("status") in {"failed", "error"})
+        if failed:
+            last_error = f"{failed} track(s) remain unavailable after trying the configured providers."
+        elif downloaded or skipped:
+            last_error = None
+    else:
+        downloaded = downloaded_fallback
+        skipped = skipped_fallback
+        failed = failed_fallback
+        if failed and not last_error:
+            last_error = f"{failed} track(s) failed across the configured providers."
+
+    elapsed = time.monotonic() - started
+    _safe_callback(metrics_callback, {
+        "speed_bps": 0,
+        "eta_seconds": 0,
+        "elapsed_seconds": elapsed,
+        "completed_tracks": downloaded + skipped + failed,
+        "total_tracks": downloaded + skipped + failed,
+        "finished": True,
+    })
+    return RunResult(
+        url, downloaded, skipped, failed, merged_tracks, last_error, elapsed, provider_status
+    )
 
 def write_m3u8(tracks: list[dict], destination: Path, library_root: Path) -> int:
     destination.parent.mkdir(parents=True, exist_ok=True)

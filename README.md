@@ -1,24 +1,28 @@
 # Songetter
 
-Aplicação Python para processar links Spotify em lote usando [Mornye-Python](https://github.com/mornyeapp/Mornye-Python) e os provedores do [Mornye Extension Store](https://github.com/mornyeapp/Mornye-Extension).
+Songetter is a Python application for batch-processing Spotify links with [Mornye-Python](https://github.com/mornyeapp/Mornye-Python) and providers from the [Mornye Extension Store](https://github.com/mornyeapp/Mornye-Extension).
 
-## Provedores integrados
+## Integrated providers
 
-O Songetter adiciona automaticamente o catálogo unificado, sem apagar registries que você já configurou:
+Songetter automatically adds the unified catalog without removing registries you have already configured:
 
-https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry-unified.json
+`https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry-unified.json`
 
-Provedores padrão (ordem de fallback): `ext:tidal-web`, `ext:qobuz-web`, `ext:deezer`, `ext:amazon`, `ext:ytmusic-spotiflac`, `ext:soundcloud` e `ext:jiosaavn`.
+Default providers (fallback priority): `ext:tidal-web`, `ext:qobuz-web`, `ext:deezer`, `ext:amazon`, `ext:ytmusic-spotiflac`, `ext:soundcloud`, and `ext:jiosaavn`.
 
-O catálogo inclui também `utilities`, pacote Python de utilitários de metadados, sessão e resolução de navegador. O catálogo unificado separa os runtimes Python e JavaScript; Mornye seleciona os pacotes compatíveis e instala os provedores necessários a partir do registry.
+The catalog also includes `utilities`, a Python package providing metadata, session, and browser-resolution utilities. The unified catalog distinguishes Python and JavaScript runtimes; Mornye selects compatible packages and installs the required providers from the registry.
 
-`beatport` e `jellyfin` não entram na lista padrão porque podem exigir infraestrutura, conta ou configuração específica; podem ser selecionados manualmente quando estiverem preparados. Extensões são código de terceiros: revise manifests, permissões, requisitos, licenças e termos dos serviços.
+`beatport` and `jellyfin` are not included in the default list because they may require dedicated infrastructure, an account, or service-specific configuration. They can be selected manually once configured. Extensions are third-party code: review manifests, permissions, requirements, licenses, and service terms before installing them.
 
-## Requisitos
+## Requirements
 
-Python 3.11+, `mornye>=2.0.6` (instalado automaticamente pelo `pip install -e .`) e Node.js para os provedores JavaScript. O primeiro uso consulta o registry; a instalação das extensões pode exigir acesso à internet e configuração própria do provedor.
+- Python 3.11+
+- `mornye>=2.0.6` (installed automatically by `pip install -e .`)
+- Node.js for JavaScript-based providers
 
-## Instalação
+The first run accesses the registry. Installing extensions may require an internet connection and provider-specific setup.
+
+## Installation
 
 ```bash
 git clone https://github.com/Augusto-Dantas/Songetter.git
@@ -29,37 +33,39 @@ python -m pip install --upgrade pip
 pip install -e .
 ```
 
-## Interface web
+## Web application
 
 ```bash
 streamlit run app.py
 ```
 
-Abra `http://localhost:8501`, cole os links e ajuste a lista/ordem dos provedores se desejar.
+Open `http://localhost:8501`, paste your Spotify links, and adjust the provider list or priority order if needed.
 
-## CLI
+## Command-line interface
 
 ```bash
-songetter <link-spotify>
+songetter <spotify-link>
 songetter --input links.txt --output ./Music
 songetter --input links.txt --service ext:tidal-web --service ext:qobuz-web
 ```
 
-O último exemplo substitui a lista padrão. Registries adicionais podem ser configurados em `MORNYE_REGISTRIES` (separados por vírgula); os existentes são preservados.
+The last example replaces the default provider list. Additional registries can be configured through `MORNYE_REGISTRIES` (comma-separated); existing entries are preserved.
 
-## Saída
+Supported Spotify links include tracks, albums, playlists, and artist pages. Localized URLs such as `https://open.spotify.com/intl-en/artist/...` are normalized automatically.
 
-A biblioteca é organizada por artista/álbum. Mornye incorpora tags e capas, incorpora letras quando disponíveis e o Songetter exporta `.lrc` e uma playlist geral `.m3u8` com caminhos relativos.
+## Output
 
-Use somente conteúdo que você tenha autorização para baixar e respeite os termos dos serviços.
+The library is organized into artist and album subfolders. Mornye handles tags and artwork, downloads lyrics when available, and Songetter exports an overall `.m3u8` playlist using relative paths.
 
-## Testes
+Only download content you are authorized to access, and comply with the terms of each service.
+
+## Tests
 
 ```bash
 pip install pytest
 pytest
 ```
 
-## Licença
+## License
 
-MIT. Consulte também as licenças dos provedores e extensões.
+MIT. See also the licenses of the providers and extensions you use.

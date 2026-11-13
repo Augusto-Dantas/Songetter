@@ -31,28 +31,28 @@ def parse_links(raw: str) -> list[str]:
         parsed = urlparse(candidate)
         host = (parsed.hostname or "").lower()
         if parsed.scheme not in {"http", "https"} or host not in SPOTIFY_HOSTS:
-            raise ValueError(f"Link Spotify inválido: {candidate}")
+            raise ValueError(f"Invalid Spotify link: {candidate}")
         if host == "open.spotify.com":
-            # Spotify pode incluir um prefixo de idioma, por exemplo /intl-pt/artist/...
+            # Spotify URLs may include a locale prefix, such as /intl-en/artist/...
             canonical_path = re.sub(r"^/intl-[a-z]{2}(?:-[a-z]{2})?/", "/", parsed.path, flags=re.IGNORECASE)
             if not re.match(r"^/(track|album|playlist|artist)/[A-Za-z0-9]+/?$", canonical_path):
-                raise ValueError(f"Tipo de link Spotify não suportado: {candidate}")
-            # Entrega ao Mornye a URL canônica, sem o prefixo de localização.
+                raise ValueError(f"Unsupported Spotify link type: {candidate}")
+            # Pass the canonical URL to Mornye without the locale prefix.
             candidate = parsed._replace(path=canonical_path).geturl()
         if candidate not in found: found.append(candidate)
-    if not found: raise ValueError("Informe pelo menos um link do Spotify.")
+    if not found: raise ValueError("Provide at least one Spotify link.")
     return found
 
 def _mornye_command() -> str:
     executable = shutil.which("mornye")
-    if not executable: raise RuntimeError("Executável 'mornye' não encontrado. Instale as dependências com: pip install -e .")
+    if not executable: raise RuntimeError("The 'mornye' executable was not found. Install the project dependencies with: pip install -e .")
     return executable
 
 def run_download(url: str, output_dir: Path, services: list[str] | None = None,
                  lyrics_providers: list[str] | None = None, timeout: int = 3600) -> RunResult:
     configure_mornye_registry()
     selected = list(services or DEFAULT_SERVICES)
-    if not selected: raise ValueError("Selecione ao menos um provedor Mornye.")
+    if not selected: raise ValueError("Select at least one Mornye provider.")
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [_mornye_command(), url, str(output_dir), "--json", "--use-artist-subfolders",
                "--use-album-subfolders", "--lyrics-providers", *(lyrics_providers or ["apple", "lrclib"]),
@@ -61,13 +61,13 @@ def run_download(url: str, output_dir: Path, services: list[str] | None = None,
                                env=os.environ.copy(), check=False)
     try: report = json.loads(completed.stdout)
     except json.JSONDecodeError:
-        details = (completed.stderr or completed.stdout or "Mornye não retornou JSON válido").strip()
+        details = (completed.stderr or completed.stdout or "Mornye did not return valid JSON").strip()
         return RunResult(url, 0, 0, 0, [], details[-4000:])
-    if report.get("schema_version") != 1: return RunResult(url, 0, 0, 0, [], "Versão de relatório Mornye não reconhecida.")
+    if report.get("schema_version") != 1: return RunResult(url, 0, 0, 0, [], "Unrecognized Mornye report version.")
     tracks, summary = report.get("tracks", []), report.get("summary", {})
     return RunResult(url, int(summary.get("downloaded", 0)), int(summary.get("skipped", 0)),
                      int(summary.get("failed", 0)), tracks,
-                     None if completed.returncode == 0 else (completed.stderr.strip()[-4000:] or "Mornye terminou com erro."))
+                     None if completed.returncode == 0 else (completed.stderr.strip()[-4000:] or "Mornye exited with an error."))
 
 def write_m3u8(tracks: list[dict], destination: Path, library_root: Path) -> int:
     destination.parent.mkdir(parents=True, exist_ok=True)

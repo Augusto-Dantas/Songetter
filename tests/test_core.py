@@ -178,6 +178,7 @@ def test_run_download_moves_to_next_provider_after_cooldown(monkeypatch, tmp_pat
 
     calls = []
     monkeypatch.setattr(core, "_active_provider_cooldown", lambda provider: None)
+    monkeypatch.setattr(core, "_record_provider_cooldown", lambda event: None)
 
     def fake_run(url, output_dir, services, lyrics_providers, timeout, concurrency, progress, metrics):
         provider = services[0]

@@ -88,11 +88,7 @@ if start:
         eta_value = eta_metric.empty()
         elapsed_value = elapsed_metric.empty()
         progress_lines = []
-        current_track = 0
-        current_total = 0
-
         def show_progress(message: str) -> None:
-            nonlocal current_track, current_total
             progress_lines.append(message)
             del progress_lines[:-12]
             log_panel.code("\n".join(progress_lines), language="text")

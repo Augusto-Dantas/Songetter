@@ -1,7 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import streamlit as st
-from songetter.core import DEFAULT_SERVICES, MORNYE_REGISTRY, configure_mornye_registry, parse_links, run_downloads, write_m3u8
+from songetter.core import DEFAULT_SERVICES, MORNYE_REGISTRY, configure_mornye_registry, parse_links, run_download, write_m3u8
 
 st.set_page_config(page_title="Songetter", page_icon="♫", layout="wide")
 st.title("Songetter")
@@ -16,7 +16,7 @@ with st.sidebar:
         help="Mornye installs the required providers from the integrated catalog. Remove or reorder IDs as needed.",
     )
     lyrics_value = st.text_input("Lyrics providers", value="apple,lrclib")
-    workers_value = st.slider("Concurrent downloads", min_value=1, max_value=8, value=3, help="Maximum number of Spotify links processed at the same time.")
+    concurrency_value = st.slider("Concurrent track downloads", min_value=1, max_value=8, value=2, help="Maximum number of tracks Mornye downloads at the same time.")
     st.caption("Registry catalog: " + MORNYE_REGISTRY)
     st.info(
         "Songetter preserves existing registries and adds the Mornye catalog. "
@@ -41,33 +41,31 @@ if start:
         if not services:
             raise ValueError("Select at least one Mornye provider.")
 
+        all_tracks, totals = [], {"downloaded": 0, "skipped": 0, "failed": 0}
         progress = st.progress(0, text="Preparing downloads...")
         status = st.empty()
-
-        def update_progress(completed: int, total: int, result) -> None:
-            progress.progress(completed / total, text=f"Completed {completed} of {total} links")
-            status.write(f"Finished: {result.url}")
+        for index, url in enumerate(links, 1):
+            status.write(f"Processing link {index} of {len(links)}: {url}")
+            result = run_download(
+                url,
+                output,
+                services,
+                lyrics,
+                max_concurrent_downloads=concurrency_value,
+            )
+            all_tracks.extend(result.tracks)
+            for key in totals:
+                totals[key] += getattr(result, key)
             if result.error:
-                st.error(f"{result.url}: {result.error}")
-
-        results = run_downloads(
-            links,
-            output,
-            services,
-            lyrics,
-            max_workers=workers_value,
-            on_complete=update_progress,
-        )
-        all_tracks = [track for result in results for track in result.tracks]
-        totals = {
-            "downloaded": sum(result.downloaded for result in results),
-            "skipped": sum(result.skipped for result in results),
-            "failed": sum(result.failed for result in results),
-        }
+                st.error(f"{url}: {result.error}")
+            progress.progress(index / len(links), text=f"Completed {index} of {len(links)} links")
 
         playlist = output / "Songetter.m3u8"
         count = write_m3u8(all_tracks, playlist, output)
-        status.success(f"Processing complete. Processed {len(results)} links using {workers_value} workers.")
+        status.success(
+            f"Processing complete. Processed {len(links)} links with up to "
+            f"{concurrency_value} tracks downloading simultaneously."
+        )
         col1, col2, col3 = st.columns(3)
         col1.metric("Downloaded", totals["downloaded"])
         col2.metric("Already existing", totals["skipped"])

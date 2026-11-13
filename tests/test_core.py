@@ -52,15 +52,22 @@ def test_run_download_passes_concurrency_to_mornye(tmp_path, monkeypatch):
     import songetter.core as core
 
     monkeypatch.setattr(core, "_mornye_command", lambda: "mornye")
-    captured = {}\n    def fake_run(command, **kwargs):\n        captured["command"] = command\n        return subprocess.CompletedProcess(command, 0, json.dumps({"schema_version": 1, "tracks": [], "summary": {}}), "")\n    monkeypatch.setattr(core.subprocess, "run", fake_run)
+    captured = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        report = {"schema_version": 1, "tracks": [], "summary": {}}
+        return subprocess.CompletedProcess(command, 0, json.dumps(report), "")
+
+    monkeypatch.setattr(core.subprocess, "run", fake_run)
     result = core.run_download(
         "https://open.spotify.com/track/abc123",
         tmp_path,
         max_concurrent_downloads=5,
     )
-    assert result.error is None
-    # The command is captured through the fake subprocess call below in the dedicated test.
 
+    assert result.error is None
+    assert captured["command"][captured["command"].index("--max-concurrent") + 1] == "5"
 
 def test_run_download_rejects_zero_concurrency(tmp_path):
     import songetter.core as core

@@ -6,6 +6,15 @@ def test_parse_links_deduplicates_and_accepts_track_and_playlist():
     links = parse_links("https://open.spotify.com/track/abc123\nhttps://open.spotify.com/playlist/def456")
     assert len(links) == 2
 
+def test_parse_links_accepts_localized_artist_url_and_normalizes_it():
+    links = parse_links("https://open.spotify.com/intl-pt/artist/3p7PcrEHaaKLJnPUGOtRIT")
+    assert links == ["https://open.spotify.com/artist/3p7PcrEHaaKLJnPUGOtRIT"]
+
+def test_parse_links_accepts_artist_url():
+    assert parse_links("https://open.spotify.com/artist/abc123") == [
+        "https://open.spotify.com/artist/abc123"
+    ]
+
 def test_parse_links_rejects_non_spotify():
     with pytest.raises(ValueError): parse_links("https://example.com/song")
 

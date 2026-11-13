@@ -95,7 +95,7 @@ def _directory_bytes(root: Path) -> int:
 def _extract_log_failures(stderr_text: str) -> list[dict]:
     failures: dict[str, dict] = {}
     for line in stderr_text.splitlines():
-        match = re.search(r"✗\\s+\\[#(\\d+)\\]\\s+(\\S+)\\s+·\\s+(.+)$", line)
+        match = re.search(r"✗\s+\[#(\d+)\]\s+(\S+)\s+·\s+(.+)$", line)
         if match:
             index, provider, detail = match.groups()
             failures[index] = {
@@ -109,7 +109,7 @@ def _extract_log_failures(stderr_text: str) -> list[dict]:
     if not failures:
         for line in stderr_text.splitlines():
             match = re.search(
-                r"\\[([^\\]]+)\\]\\s+Download FAILED for ['\\\"](.+?)['\\\"].*?:\\s*(.+)$",
+                r"\[([^\]]+)\]\s+Download FAILED for ['\\"](.+?)['\\"].*?:\s*(.+)$",
                 line,
                 re.IGNORECASE,
             )

@@ -228,13 +228,13 @@ def _parse_provider_cooldown(line: str, default_provider: str) -> dict | None:
     if not any(term in lowered for term in _COOLDOWN_TERMS):
         return None
 
-    provider_match = re.search(r"\\[#\\d+\\]\\s+(\\S+)", line)
+    provider_match = re.search(r"\[#\d+\]\s+(\S+)", line)
     if not provider_match:
-        provider_match = re.search(r"\\[([^\\]]+)\\]", line)
+        provider_match = re.search(r"\[([^\]]+)\]", line)
     provider = provider_match.group(1) if provider_match else default_provider
 
     duration_match = re.search(
-        r"(?:next\\s+try|retry|try\\s+again)\\s+in\\s+(\\d+)\\s*"
+        r"(?:next\s+try|retry|try\s+again)\s+in\s+(\d+)\s*"
         r"(seconds?|secs?|s|minutes?|mins?|m|hours?|hrs?|h)\\b",
         line,
         re.IGNORECASE,
@@ -373,8 +373,10 @@ def _run_download_once(
                     stderr_tail.append(line)
                     _safe_callback(progress_callback, line)
 
-                    cooldown_event = _parse_provider_cooldown(line, selected[0])
-                    if cooldown_event and process.poll() is None:
+                    detected_cooldown = _parse_provider_cooldown(line, selected[0])
+                    if detected_cooldown and cooldown_event is None:
+                        cooldown_event = detected_cooldown
+                    if detected_cooldown and process.poll() is None:
                         _safe_callback(
                             progress_callback,
                             f"[CIRCUIT BREAKER] {selected[0]} paused; switching to the next provider.",

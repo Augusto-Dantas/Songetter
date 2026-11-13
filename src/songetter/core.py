@@ -523,6 +523,8 @@ def run_download(
         failed_fallback = max(failed_fallback, result.failed)
         if result.error:
             last_error = result.error
+            if result.error.startswith(("Could not start Mornye:", "Operating system error while starting Mornye:")):
+                break
 
         # A complete report with no failed tracks means no later provider is needed.
         if result.failed == 0 and result.tracks:

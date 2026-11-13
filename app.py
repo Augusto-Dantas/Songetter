@@ -1,7 +1,41 @@
 from __future__ import annotations
+
 from pathlib import Path
+import re
 import streamlit as st
-from songetter.core import DEFAULT_SERVICES, MORNYE_REGISTRY, configure_mornye_registry, parse_links, run_download, write_m3u8
+
+from songetter.core import (
+    DEFAULT_SERVICES,
+    MORNYE_REGISTRY,
+    configure_mornye_registry,
+    parse_links,
+    run_download,
+    write_m3u8,
+)
+
+
+def format_bytes_per_second(value: float) -> str:
+    units = ("B/s", "KB/s", "MB/s", "GB/s")
+    amount = max(0.0, float(value))
+    for unit in units:
+        if amount < 1024 or unit == units[-1]:
+            return f"{amount:.1f} {unit}"
+        amount /= 1024
+    return f"{amount:.1f} GB/s"
+
+
+def format_duration(seconds: float | None) -> str:
+    if seconds is None:
+        return "Calculating..."
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m"
+    if minutes:
+        return f"{minutes}m {seconds:02d}s"
+    return f"{seconds}s"
+
 
 st.set_page_config(page_title="Songetter", page_icon="♫", layout="wide")
 st.title("Songetter")
@@ -16,7 +50,10 @@ with st.sidebar:
         help="Mornye installs the required providers from the integrated catalog. Remove or reorder IDs as needed.",
     )
     lyrics_value = st.text_input("Lyrics providers", value="apple,lrclib")
-    concurrency_value = st.slider("Concurrent track downloads", min_value=1, max_value=8, value=2, help="Maximum number of tracks Mornye downloads at the same time.")
+    concurrency_value = st.slider(
+        "Concurrent track downloads", min_value=1, max_value=8, value=2,
+        help="Maximum number of tracks Mornye downloads at the same time.",
+    )
     st.caption("Registry catalog: " + MORNYE_REGISTRY)
     st.info(
         "Songetter preserves existing registries and adds the Mornye catalog. "
@@ -41,38 +78,74 @@ if start:
         if not services:
             raise ValueError("Select at least one Mornye provider.")
 
-        all_tracks, totals = [], {"downloaded": 0, "skipped": 0, "failed": 0}
+        all_tracks = []
+        totals = {"downloaded": 0, "skipped": 0, "failed": 0}
         progress = st.progress(0, text="Starting Mornye...")
         status = st.empty()
-        live_log = st.empty()
+        log_panel = st.empty()
+        speed_metric, eta_metric, elapsed_metric = st.columns(3)
+        speed_value = speed_metric.empty()
+        eta_value = eta_metric.empty()
+        elapsed_value = elapsed_metric.empty()
         progress_lines = []
+        current_track = 0
+        current_total = 0
 
         def show_progress(message: str) -> None:
+            nonlocal current_track, current_total
             progress_lines.append(message)
-            del progress_lines[:-8]
-            live_log.code("\\n".join(progress_lines), language="text")
-            track_match = __import__("re").search(r"Track \\[(\\d+)/(\\d+)\\]", message)
-            if track_match:
-                current, total = map(int, track_match.groups())
-                if total:
-                    progress.progress(min(current / total, 1.0), text=f"Processing track {current} of {total}")
+            del progress_lines[:-12]
+            log_panel.code("\n".join(progress_lines), language="text")
+            match = re.search(r"Track\s+\[(\d+)/(\d+)\]", message)
+            if match:
+                current_track, current_total = map(int, match.groups())
+                if current_total:
+                    progress.progress(
+                        min(current_track / current_total, 1.0),
+                        text=f"Processing track {current_track} of {current_total}",
+                    )
             elif message.startswith("[RUN]"):
+                progress_match = re.search(r"\[RUN\]\s+(\d+)\s+track", message)
+                if progress_match:
+                    current_total = int(progress_match.group(1))
                 progress.progress(0, text="Mornye is resolving the Spotify link...")
+            if "verification paused" in message.lower() or "next try in" in message.lower():
+                status.warning("A provider has temporarily paused requests. The failed track will not be retried automatically.")
+
+        def show_metrics(metrics: dict) -> None:
+            speed_value.metric("Download speed", format_bytes_per_second(metrics.get("speed_bps", 0)))
+            eta_value.metric("Estimated time remaining", format_duration(metrics.get("eta_seconds")))
+            elapsed_value.metric("Elapsed", format_duration(metrics.get("elapsed_seconds", 0)))
+
         for index, url in enumerate(links, 1):
-            status.write(f"Processing link {index} of {len(links)}: {url}")
-            result = run_download(
-                url,
-                output,
-                services,
-                lyrics,
-                max_concurrent_downloads=concurrency_value,
-                progress_callback=show_progress,
-            )
+            status.info(f"Processing link {index} of {len(links)}: {url}")
+            try:
+                result = run_download(
+                    url,
+                    output,
+                    services,
+                    lyrics,
+                    max_concurrent_downloads=concurrency_value,
+                    progress_callback=show_progress,
+                    metrics_callback=show_metrics,
+                )
+            except Exception as exc:
+                status.error(f"Could not process {url}: {type(exc).__name__}: {exc}")
+                totals["failed"] += 1
+                continue
+
             all_tracks.extend(result.tracks)
             for key in totals:
                 totals[key] += getattr(result, key)
+
             if result.error:
                 st.error(f"{url}: {result.error}")
+            for track in result.tracks:
+                if track.get("status") == "failed" or track.get("error"):
+                    title = track.get("title") or "Unknown track"
+                    detail = track.get("error") or track.get("message") or "The provider did not return a failure reason."
+                    st.warning(f"{title}: {detail}")
+
             if index == len(links):
                 progress.progress(1.0, text=f"Completed {index} of {len(links)} links")
 
@@ -96,14 +169,14 @@ if start:
                         "Album": track.get("album"),
                         "Status": track.get("status"),
                         "File": track.get("file_path"),
-                        "Error": track.get("error"),
+                        "Error": track.get("error") or track.get("message"),
                     }
                     for track in all_tracks
                 ],
                 use_container_width=True,
             )
     except Exception as exc:
-        st.error(str(exc))
+        st.error(f"{type(exc).__name__}: {exc}")
 
 st.divider()
 st.caption("Only download content you are authorized to access, and comply with each service's terms.")

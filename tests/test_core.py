@@ -251,3 +251,60 @@ def test_run_download_once_omits_save_lrc_and_keeps_lyrics_providers(monkeypatch
     assert "apple" in captured_cmd
     assert "lrclib" in captured_cmd
     assert "--save-lrc" not in captured_cmd
+
+
+def test_parse_source_links_accepts_and_deduplicates_all_supported_hosts():
+    from songetter.core import parse_source_links
+
+    raw = "\n".join([
+        "https://open.spotify.com/intl-es/track/abc123",
+        "https://open.spotify.com/track/abc123",
+        "https://spotify.link/short1",
+        "https://deezer.com/track/1",
+        "https://www.deezer.com/album/2",
+        "https://deezer.page.link/short2",
+        "https://tidal.com/browse/track/3",
+        "https://listen.tidal.com/album/4",
+        "https://qobuz.com/us-en/album/5",
+        "https://open.qobuz.com/track/6",
+        "https://play.qobuz.com/album/7",
+        "https://music.apple.com/us/album/foo/8?i=9",
+        "https://music.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://soundcloud.com/artist/song",
+        "https://on.soundcloud.com/short3",
+        "https://jiosaavn.com/song/foo/bar",
+        "https://www.jiosaavn.com/album/baz/qux",
+    ])
+    parsed = parse_source_links(raw)
+    assert len(parsed) == 16
+    assert parsed[0] == "https://open.spotify.com/track/abc123"
+    assert "https://music.youtube.com/watch?v=dQw4w9WgXcQ" in parsed
+
+
+def test_parse_source_links_rejects_unknown_host_and_empty_input():
+    from songetter.core import parse_source_links
+
+    with pytest.raises(ValueError, match="Invalid music link"):
+        parse_source_links("https://example.com/song")
+
+    with pytest.raises(ValueError, match="Provide at least one"):
+        parse_source_links("   \n  ")
+
+
+def test_parse_links_allow_all_sources_flag():
+    assert parse_links("https://www.deezer.com/track/42", allow_all_sources=True) == [
+        "https://www.deezer.com/track/42"
+    ]
+    with pytest.raises(ValueError, match="Invalid Spotify link"):
+        parse_links("https://www.deezer.com/track/42")
+
+
+def test_directory_bytes_includes_audio_and_active_part_files(tmp_path: Path):
+    from songetter.core import _directory_bytes
+
+    nested = tmp_path / "staging"
+    nested.mkdir()
+    (tmp_path / "song.flac").write_bytes(b"a" * 100)
+    (nested / "downloading.mp3.part").write_bytes(b"b" * 250)
+    (tmp_path / "notes.txt").write_bytes(b"c" * 500)
+    assert _directory_bytes(tmp_path) == 350

@@ -15,8 +15,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
+from .config import AUDIO_SUFFIXES, SUPPORTED_SOURCE_HOSTS
+
 SPOTIFY_HOSTS = {"open.spotify.com", "spotify.link"}
-AUDIO_SUFFIXES = {".flac", ".mp3", ".m4a", ".ogg", ".opus", ".wav", ".aiff", ".wv", ".tta"}
 MORNYE_REGISTRY = "https://raw.githubusercontent.com/mornyeapp/Mornye-Extension/main/registry-unified.json"
 DEFAULT_SERVICES = ["ext:tidal-web", "ext:qobuz-web", "ext:deezer", "ext:amazon", "ext:ytmusic-spotiflac", "ext:soundcloud", "ext:jiosaavn"]
 
@@ -41,25 +42,41 @@ def configure_mornye_registry() -> str:
     return os.environ["MORNYE_REGISTRIES"]
 
 
-def parse_links(raw: str) -> list[str]:
-    found = []
+def parse_links(raw: str, allow_all_sources: bool = False) -> list[str]:
+    """Parse, normalize, validate, and deduplicate music links from raw text."""
+    allowed_hosts = SUPPORTED_SOURCE_HOSTS if allow_all_sources else SPOTIFY_HOSTS
+    source_label = "music" if allow_all_sources else "Spotify"
+    found: list[str] = []
+
     for candidate in re.split(r"[\s,;]+", raw.strip()):
         if not candidate:
             continue
         parsed = urlparse(candidate)
         host = (parsed.hostname or "").lower()
-        if parsed.scheme not in {"http", "https"} or host not in SPOTIFY_HOSTS:
-            raise ValueError(f"Invalid Spotify link: {candidate}")
+        if parsed.scheme.lower() not in {"http", "https"} or host not in allowed_hosts:
+            raise ValueError(f"Invalid {source_label} link: {candidate}")
         if host == "open.spotify.com":
-            canonical_path = re.sub(r"^/intl-[a-z]{2}(?:-[a-z]{2})?/", "/", parsed.path, flags=re.IGNORECASE)
+            canonical_path = re.sub(
+                r"^/intl-[a-z]{2}(?:-[a-z]{2})?/",
+                "/",
+                parsed.path,
+                flags=re.IGNORECASE,
+            )
             if not re.match(r"^/(track|album|playlist|artist)/[A-Za-z0-9]+/?$", canonical_path):
                 raise ValueError(f"Unsupported Spotify link type: {candidate}")
             candidate = parsed._replace(path=canonical_path).geturl()
         if candidate not in found:
             found.append(candidate)
+
     if not found:
-        raise ValueError("Provide at least one Spotify link.")
+        empty_label = "supported music" if allow_all_sources else "Spotify"
+        raise ValueError(f"Provide at least one {empty_label} link.")
     return found
+
+
+def parse_source_links(raw: str) -> list[str]:
+    """Parse and deduplicate links across all supported streaming source hosts."""
+    return parse_links(raw, allow_all_sources=True)
 
 
 def _mornye_command() -> str:
@@ -80,10 +97,14 @@ def _safe_callback(callback: Callable | None, value) -> None:
 
 
 def _directory_bytes(root: Path) -> int:
+    """Return total byte size of audio files and active .part downloads under root."""
     total = 0
     try:
         for path in root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in AUDIO_SUFFIXES:
+            if path.is_file() and (
+                path.suffix.lower() in AUDIO_SUFFIXES
+                or path.name.lower().endswith(".part")
+            ):
                 try:
                     total += path.stat().st_size
                 except OSError:

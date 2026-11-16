@@ -81,3 +81,33 @@ DEFAULT_FALLBACK_ARTIST: Final[str] = "Unknown Artist"
 DEFAULT_FALLBACK_TITLE: Final[str] = "Unknown Title"
 FALLBACK_ARTIST: Final[str] = "Unknown"
 FALLBACK_TITLE: Final[str] = "Unknown"
+
+# Built-in search sources supported by songetter.search
+SUPPORTED_SEARCH_SOURCES: Final[Tuple[str, ...]] = (
+    "deezer",
+    "tidal",
+    "itunes",
+    "musicbrainz",
+    "qobuz",
+    "spotify",
+)
+
+# Supported streaming platform hosts for multi-source link parsing
+SUPPORTED_SOURCE_HOSTS: Final[frozenset[str]] = frozenset({
+    "open.spotify.com",
+    "spotify.link",
+    "deezer.com",
+    "www.deezer.com",
+    "deezer.page.link",
+    "tidal.com",
+    "listen.tidal.com",
+    "qobuz.com",
+    "open.qobuz.com",
+    "play.qobuz.com",
+    "music.apple.com",
+    "music.youtube.com",
+    "soundcloud.com",
+    "on.soundcloud.com",
+    "jiosaavn.com",
+    "www.jiosaavn.com",
+})

@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from songetter.web.app import create_app
+from songetter.web.app import app, create_app
 
-__all__ = ["create_app"]
+__all__ = ["app", "create_app"]

@@ -24,9 +24,12 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pytest
+import soundfile as sf
 from mutagen.easyid3 import EasyID3
 from mutagen.flac import FLAC
+from mutagen.id3 import ID3, TIT2, TPE1
 from mutagen.mp3 import MP3
 
 from songetter.config import DEFAULT_FALLBACK_ARTIST, DEFAULT_FALLBACK_TITLE
@@ -44,36 +47,79 @@ from songetter.organizer import (
 )
 
 
+def _generate_minimal_mp3_frames(
+    bitrate_k: int = 320,
+    sample_rate: int = 44100,
+    duration: float = 2.0,
+) -> bytes:
+    """Generates valid MPEG-1 Layer 3 audio frames matching bitrate_k and duration."""
+    bitrate_map = {
+        32: 1, 40: 2, 48: 3, 56: 4, 64: 5, 80: 6, 96: 7, 112: 8,
+        128: 9, 160: 10, 192: 11, 224: 12, 256: 13, 320: 14,
+    }
+    sr_map = {44100: 0, 48000: 1, 32000: 2}
+    br_idx = bitrate_map.get(bitrate_k, 14)
+    sr_idx = sr_map.get(sample_rate, 0)
+    header = bytes([0xFF, 0xFB, (br_idx << 4) | (sr_idx << 2), 0x00])
+    frame_size = int(144 * (bitrate_k * 1000) / sample_rate)
+    frame_data = header + b"\x00" * max(0, frame_size - 4)
+    num_frames = max(10, int(duration * (sample_rate / 1152.0)))
+    return frame_data * num_frames
+
+
 def _generate_mp3(path: Path, duration: int = 2, bitrate_k: int = 320, artist: str = None, title: str = None):
-    """Generates a genuine MP3 audio bitstream using ffmpeg with specified bitrate and optional tags."""
-    cmd = [
-        "ffmpeg", "-y", "-v", "error",
-        "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
-        "-b:a", f"{bitrate_k}k",
-        str(path),
-    ]
-    subprocess.run(cmd, check=True)
+    """Generates a genuine MP3 audio bitstream using ffmpeg or pure-Python MPEG frames fallback."""
+    if shutil.which("ffmpeg"):
+        cmd = [
+            "ffmpeg", "-y", "-v", "error",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            "-b:a", f"{bitrate_k}k",
+            str(path),
+        ]
+        subprocess.run(cmd, check=True)
+    else:
+        path.write_bytes(_generate_minimal_mp3_frames(bitrate_k=bitrate_k, duration=duration))
+
     if artist or title:
         try:
             audio = MP3(path, ID3=EasyID3)
+            if audio.tags is None:
+                audio.add_tags()
+            if artist:
+                audio["artist"] = artist
+            if title:
+                audio["title"] = title
+            audio.save()
         except Exception:
-            audio = MP3(path)
-            audio.add_tags(ID3=EasyID3)
-        if artist:
-            audio["artist"] = artist
-        if title:
-            audio["title"] = title
-        audio.save()
+            tags = ID3()
+            if artist:
+                tags.add(TPE1(encoding=3, text=[artist]))
+            if title:
+                tags.add(TIT2(encoding=3, text=[title]))
+            tags.save(str(path))
 
 
 def _generate_flac(path: Path, duration: int = 2, artist: str = None, title: str = None):
-    """Generates a genuine FLAC audio bitstream using ffmpeg with optional Vorbis tags."""
-    cmd = [
-        "ffmpeg", "-y", "-v", "error",
-        "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
-        str(path),
-    ]
-    subprocess.run(cmd, check=True)
+    """Generates a genuine FLAC audio bitstream using ffmpeg or numpy+soundfile fallback."""
+    if shutil.which("ffmpeg"):
+        cmd = [
+            "ffmpeg", "-y", "-v", "error",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            str(path),
+        ]
+        subprocess.run(cmd, check=True)
+    else:
+        sample_rate = 44100
+        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        audio_data = 0.5 * np.sin(2 * np.pi * 440 * t)
+        sf.write(
+            str(path),
+            np.column_stack([audio_data, audio_data]),
+            sample_rate,
+            format="FLAC",
+            subtype="PCM_16",
+        )
+
     if artist or title:
         audio = FLAC(path)
         if artist:
@@ -84,13 +130,25 @@ def _generate_flac(path: Path, duration: int = 2, artist: str = None, title: str
 
 
 def _generate_wav(path: Path, duration: int = 2):
-    """Generates an uncompressed WAV audio file using ffmpeg."""
-    cmd = [
-        "ffmpeg", "-y", "-v", "error",
-        "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
-        str(path),
-    ]
-    subprocess.run(cmd, check=True)
+    """Generates an uncompressed WAV audio file using ffmpeg or numpy+soundfile fallback."""
+    if shutil.which("ffmpeg"):
+        cmd = [
+            "ffmpeg", "-y", "-v", "error",
+            "-f", "lavfi", "-i", f"sine=frequency=440:duration={duration}",
+            str(path),
+        ]
+        subprocess.run(cmd, check=True)
+    else:
+        sample_rate = 44100
+        t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+        audio_data = 0.5 * np.sin(2 * np.pi * 440 * t)
+        sf.write(
+            str(path),
+            np.column_stack([audio_data, audio_data]),
+            sample_rate,
+            format="WAV",
+            subtype="PCM_16",
+        )
 
 
 # ============================================================================

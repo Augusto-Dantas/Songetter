@@ -35,8 +35,10 @@ from songetter.library import (
     LibraryIndex,
     NotADirectoryError,
     PermissionDeniedError,
+    extract_url_stem,
     validate_library_directory,
 )
+from songetter.downloader import deduplicate_records
 from songetter.organizer import (
     flatten_and_organize_library,
     format_standard_filename,
@@ -183,6 +185,7 @@ def test_boundary_pre_download_url_encoded_stems(clean_library_dir: Path, mock_a
         content_type="audio/flac",
     )
 
+    assert extract_url_stem(encoded_url) == "ACDC - Back In Black"
     assert index.contains_stem(encoded_url) is True
 
     if has_downloader_module and Downloader is not None:
@@ -217,6 +220,10 @@ def test_boundary_pre_download_duplicate_csv_rows(
     ])
     records = parse_csv(csv_bytes)
     assert len(records) == 3
+
+    deduped = deduplicate_records(records)
+    assert len(deduped) == 2
+    assert [r.url for r in deduped] == [dup_url, other_url]
 
     res = Downloader(clean_library_dir).download(records)
     assert res.downloaded == 2

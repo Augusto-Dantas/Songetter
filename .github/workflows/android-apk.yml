@@ -1,0 +1,98 @@
+name: Android APK Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test-android-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg libsndfile1
+
+      - name: Install project and dev dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run full offline test suite and Android bridge tests
+        run: |
+          python -m pytest -q
+          python -m pytest tests/test_android_bridge.py -v
+
+  build-android-apk:
+    needs: test-android-bridge
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Python 3.11 for Chaquopy
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Android SDK 34 and NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: >
+            platform-tools
+            platforms;android-34
+            build-tools;34.0.0
+            ndk;26.1.10909125
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build Debug APK
+        working-directory: android
+        run: |
+          gradle wrapper --gradle-version 8.7
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/songetter-debug.apk
+
+      - name: Upload Debug APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: songetter-android-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Publish APK Package to GitHub Releases
+        if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          APK_PATH="android/app/build/outputs/apk/debug/songetter-debug.apk"
+          if gh release view v0.1.0 >/dev/null 2>&1; then
+            gh release upload v0.1.0 "${APK_PATH}" --clobber
+          else
+            gh release create v0.1.0 "${APK_PATH}" \
+              --title "Songetter v0.1.0 (Android APK)" \
+              --notes "Automated debug APK build for Songetter Hybrid Android (Kotlin + Jetpack Compose + Chaquopy Python 3.11)."
+          fi

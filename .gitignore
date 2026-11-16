@@ -137,3 +137,10 @@ dmypy.json
 # Local music library and downloads
 Music/
 downloads/
+
+# Android / Gradle build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk

@@ -1,0 +1,54 @@
+FROM eclipse-temurin:17-jdk-jammy
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    ANDROID_HOME=/opt/android-sdk \
+    ANDROID_SDK_ROOT=/opt/android-sdk \
+    GRADLE_HOME=/opt/gradle/gradle-8.7 \
+    PATH="/opt/gradle/gradle-8.7/bin:/opt/android-sdk/cmdline-tools/latest/bin:/opt/android-sdk/platform-tools:${PATH}"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    unzip \
+    python3.11 \
+    python3.11-venv \
+    python3.11-distutils \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python3 \
+    && ln -sf /usr/bin/python3.11 /usr/local/bin/python
+
+# Install Android SDK 34 Command-Line Tools, Build Tools, Platform Tools, and NDK
+RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
+    && curl -fsSL https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -o /tmp/cmdline-tools.zip \
+    && unzip -q /tmp/cmdline-tools.zip -d "${ANDROID_HOME}/cmdline-tools" \
+    && mv "${ANDROID_HOME}/cmdline-tools/cmdline-tools" "${ANDROID_HOME}/cmdline-tools/latest" \
+    && rm -f /tmp/cmdline-tools.zip \
+    && yes | sdkmanager --licenses >/dev/null \
+    && sdkmanager --install \
+        "platform-tools" \
+        "platforms;android-34" \
+        "build-tools;34.0.0" \
+        "ndk;26.1.10909125"
+
+# Install Gradle 8.7 (compatible with AGP 8.5.2 and Chaquopy 15.0.1)
+RUN mkdir -p /opt/gradle \
+    && curl -fsSL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip \
+    && unzip -q /tmp/gradle.zip -d /opt/gradle \
+    && rm -f /tmp/gradle.zip
+
+WORKDIR /app
+
+# Copy only the Python source tree and Android Gradle project (downloads/, Music/, .venv/ excluded via .dockerignore)
+COPY src/ ./src/
+COPY android/ ./android/
+
+WORKDIR /app/android
+
+# Generate Gradle Wrapper and assemble debug APK
+RUN gradle wrapper --gradle-version 8.7 \
+    && ./gradlew assembleDebug --no-daemon
+
+# Stage APK at predictable path for extraction via `docker cp`
+RUN mkdir -p /output \
+    && cp app/build/outputs/apk/debug/*.apk /output/songetter-debug.apk

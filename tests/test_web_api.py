@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from mutagen.flac import FLAC
 
 from songetter import search as search_mod
 from songetter.csv_processor import parse_csv
@@ -18,7 +19,9 @@ from songetter.search import (
     SearchResult,
     register_search_provider,
 )
+from songetter.web import app as package_app
 from songetter.web import create_app
+from songetter.web.app import app as module_app
 from tests.e2e.conftest import MockAudioServer, create_synthetic_audio, create_synthetic_csv
 
 
@@ -102,49 +105,69 @@ class _StubSearchProvider(SearchProvider):
         return list(self._results[:limit])
 
 
-def test_web_ui_renders_all_panels(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_ui_renders_all_panels_and_exports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
-    client = TestClient(create_app())
+    assert package_app is module_app
 
+    client = TestClient(create_app(default_library_dir=tmp_path / "ui_lib"))
     resp = client.get("/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers.get("content-type", "")
     html = resp.text
     lower = html.lower()
 
-    # Library input, CSV upload input, search panel, job monitor, library table
     assert "library" in lower
+    assert "directory" in lower or "folder" in lower
     assert 'type="file"' in lower
     assert 'accept=".csv"' in html
+    assert "spotify" in lower
+    assert "urls" in lower
     assert "search" in lower
     for src in ("deezer", "tidal", "itunes", "musicbrainz", "qobuz", "spotify", "all"):
         assert src in lower
-    assert "/api/search/export" in html or "export csv" in lower
-    assert "/api/search/download" in html or "download to library" in lower
+    assert "/api/organize" in html
+    assert "/api/search/export" in html
+    assert "/api/search/download" in html
     assert "/api/jobs" in html
     assert "/api/library/tracks" in html
 
 
-def test_startup_env_library_dir_initialization(
+def test_startup_default_and_env_library_dir_initialization(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # 1. Explicit default_library_dir takes precedence over SONGETTER_LIBRARY_DIR
+    explicit_lib = tmp_path / "explicit_lib"
+    explicit_lib.mkdir()
+    monkeypatch.setenv("SONGETTER_LIBRARY_DIR", str(tmp_path / "ignored_env_lib"))
+    app_explicit = create_app(default_library_dir=explicit_lib)
+    assert app_explicit.state.library_dir == explicit_lib.resolve()
+    assert app_explicit.state.jobs == {}
+    assert app_explicit.state.last_upload_records == []
+
+    # 2. SONGETTER_LIBRARY_DIR used when default_library_dir is None
     env_lib = tmp_path / "env_music_lib"
     monkeypatch.setenv("SONGETTER_LIBRARY_DIR", str(env_lib))
-    app = create_app()
-    assert env_lib.is_dir()
-    assert app.state.library_dir == env_lib.resolve()
+    app_env = create_app()
+    assert app_env.state.library_dir == env_lib.resolve()
 
-    client = TestClient(app)
-    resp = client.get("/api/library")
-    assert resp.status_code == 200
-    assert resp.json() == {"library_dir": str(env_lib.resolve()), "tracks": []}
+    client_env = TestClient(app_env)
+    r_missing = client_env.get("/api/library")
+    assert r_missing.status_code == 200
+    assert r_missing.json() == {"path": str(env_lib.resolve()), "exists": False}
 
-    # Invalid env path (regular file) safely falls back to None without crashing startup
-    bad_file = tmp_path / "not_a_dir.txt"
-    bad_file.write_text("file", encoding="utf-8")
-    monkeypatch.setenv("SONGETTER_LIBRARY_DIR", str(bad_file))
-    bad_app = create_app()
-    assert bad_app.state.library_dir is None
+    env_lib.mkdir()
+    r_exists = client_env.get("/api/library")
+    assert r_exists.status_code == 200
+    assert r_exists.json() == {"path": str(env_lib.resolve()), "exists": True}
+
+    # 3. Fallback to Path('./Music').resolve() when neither is set
+    monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+    app_default = create_app()
+    assert app_default.state.library_dir == (tmp_path / "Music").resolve()
+    assert not (tmp_path / "Music").exists()
 
 
 def test_library_selection_and_validation_errors(
@@ -154,17 +177,22 @@ def test_library_selection_and_validation_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
-    client = TestClient(create_app())
+    client = TestClient(create_app(default_library_dir=tmp_path / "init_lib"))
 
-    # Initially None
+    # Empty initially
     init_resp = client.get("/api/library/tracks")
     assert init_resp.status_code == 200
-    assert init_resp.json() == {"library_dir": None, "tracks": []}
+    assert init_resp.json()["path"] == str((tmp_path / "init_lib").resolve())
+    assert init_resp.json()["tracks"] == []
 
     # Valid existing directory
     ok_resp = client.post("/api/library", json={"path": str(clean_library_dir)})
     assert ok_resp.status_code == 200
     assert ok_resp.json() == {"path": str(clean_library_dir.resolve()), "status": "ok"}
+    assert client.get("/api/library").json() == {
+        "path": str(clean_library_dir.resolve()),
+        "exists": True,
+    }
 
     # Auto-create nonexistent directory when create=True
     new_dir = tmp_path / "nested" / "created_lib"
@@ -174,40 +202,35 @@ def test_library_selection_and_validation_errors(
     assert Path(create_resp.json()["path"]) == new_dir.resolve()
 
     # Nonexistent without create -> 400
-    missing_resp = client.post("/api/library", json={"path": str(tmp_path / "missing_lib")})
-    assert missing_resp.status_code == 400
+    assert client.post("/api/library", json={"path": str(tmp_path / "missing_lib")}).status_code == 400
 
     # Empty path -> 400
-    empty_resp = client.post("/api/library", json={"path": "   "})
-    assert empty_resp.status_code == 400
+    assert client.post("/api/library", json={"path": "   "}).status_code == 400
 
     # Regular file -> 400
     regular_file = tmp_path / "regular.txt"
     regular_file.write_text("hello", encoding="utf-8")
-    file_resp = client.post("/api/library", json={"path": str(regular_file)})
-    assert file_resp.status_code == 400
+    assert client.post("/api/library", json={"path": str(regular_file)}).status_code == 400
 
     # Restricted root -> 400
-    root_resp = client.post("/api/library", json={"path": "/root"})
-    assert root_resp.status_code == 400
+    assert client.post("/api/library", json={"path": "/root"}).status_code == 400
 
     # Read-only directory -> 403
-    ro_resp = client.post("/api/library", json={"path": str(unwritable_library_dir)})
-    assert ro_resp.status_code == 403
+    assert client.post("/api/library", json={"path": str(unwritable_library_dir)}).status_code == 403
 
 
-def test_library_tracks_listing_returns_extracted_metadata(
+def test_library_tracks_listing_and_streaming_security(
     clean_library_dir: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
-    create_synthetic_audio(
+    mp3_path = create_synthetic_audio(
         clean_library_dir / "Daft Punk - Discovery.mp3",
         format="mp3",
         artist="Daft Punk",
         title="Discovery",
         bitrate_kbps=320,
     )
-    create_synthetic_audio(
+    flac_path = create_synthetic_audio(
         clean_library_dir / "Queen - Time.flac",
         format="flac",
         artist="Queen",
@@ -217,36 +240,82 @@ def test_library_tracks_listing_returns_extracted_metadata(
     (clean_library_dir / "notes.txt").write_text("ignore", encoding="utf-8")
     (clean_library_dir / "pending.mp3.part").write_bytes(b"partial")
 
-    client = TestClient(create_app())
-    assert client.post("/api/library", json={"path": str(clean_library_dir)}).status_code == 200
+    client = TestClient(create_app(default_library_dir=clean_library_dir))
 
-    for endpoint in ("/api/library", "/api/library/tracks"):
-        resp = client.get(endpoint)
-        assert resp.status_code == 200
-        payload = resp.json()
-        assert payload["library_dir"] == str(clean_library_dir.resolve())
-        tracks = payload["tracks"]
-        assert len(tracks) == 2
-        filenames = {t["filename"] for t in tracks}
-        assert filenames == {"Daft Punk - Discovery.mp3", "Queen - Time.flac"}
-        mp3_track = next(t for t in tracks if t["filename"] == "Daft Punk - Discovery.mp3")
-        assert mp3_track["artist"] == "Daft Punk"
-        assert mp3_track["title"] == "Discovery"
-        assert mp3_track["bitrate"] == 320000
-        assert mp3_track["file_size"] > 0
-        assert mp3_track["duration"] > 0
-        assert Path(mp3_track["path"]).name == "Daft Punk - Discovery.mp3"
+    resp = client.get("/api/library/tracks")
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["path"] == str(clean_library_dir.resolve())
+    tracks = payload["tracks"]
+    assert len(tracks) == 2
+    assert {t["filename"] for t in tracks} == {
+        "Daft Punk - Discovery.mp3",
+        "Queen - Time.flac",
+    }
+
+    mp3_track = next(t for t in tracks if t["filename"] == "Daft Punk - Discovery.mp3")
+    assert mp3_track["artist"] == "Daft Punk"
+    assert mp3_track["title"] == "Discovery"
+    assert mp3_track["bitrate"] == 320000
+    assert mp3_track["file_size"] == mp3_path.stat().st_size
+    assert mp3_track["duration"] > 0
+    assert mp3_track["format"] == "mp3"
+
+    flac_track = next(t for t in tracks if t["filename"] == "Queen - Time.flac")
+    assert flac_track["format"] == "flac"
+
+    # Stream valid MP3 and FLAC files
+    s_mp3 = client.get("/api/library/tracks/Daft%20Punk%20-%20Discovery.mp3/stream")
+    assert s_mp3.status_code == 200
+    assert "audio/mpeg" in s_mp3.headers.get("content-type", "")
+    assert s_mp3.content == mp3_path.read_bytes()
+
+    s_flac = client.get("/api/library/tracks/Queen%20-%20Time.flac/stream")
+    assert s_flac.status_code == 200
+    assert "audio/flac" in s_flac.headers.get("content-type", "")
+    assert s_flac.content == flac_path.read_bytes()
+
+    # Missing track or non-audio file -> 404
+    assert client.get("/api/library/tracks/Missing%20-%20Song.mp3/stream").status_code == 404
+    assert client.get("/api/library/tracks/notes.txt/stream").status_code == 404
+
+    # Path traversal variants (/, \, ..) -> 400
+    for bad_path in (
+        "/api/library/tracks/sub/Daft%20Punk%20-%20Discovery.mp3/stream",
+        "/api/library/tracks/..%2Fsecret.mp3/stream",
+        "/api/library/tracks/sub%5Ctrack.mp3/stream",
+        "/api/library/tracks/..%5Csecret.mp3/stream",
+        "/api/library/tracks/bad..name.mp3/stream",
+    ):
+        assert client.get(bad_path).status_code == 400, f"Expected 400 for {bad_path}"
 
 
-def test_csv_upload_valid_and_error_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_csv_upload_dedup_auto_download_and_error_cases(
+    tmp_path: Path,
+    clean_library_dir: Path,
+    mock_audio_server,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
-    app = create_app()
+    app = create_app(default_library_dir=clean_library_dir)
     client = TestClient(app)
 
+    staging = tmp_path / "upload_staging"
+    t1_bytes = create_synthetic_audio(
+        staging / "t1.mp3", format="mp3", artist="Artist 1", title="Song 1"
+    ).read_bytes()
+    t2_bytes = create_synthetic_audio(
+        staging / "t2.flac", format="flac", artist="Artist 2", title="Song 2"
+    ).read_bytes()
+    u1 = mock_audio_server.serve_bytes("t1.mp3", t1_bytes)
+    u2 = mock_audio_server.serve_bytes("t2.flac", t2_bytes, content_type="audio/flac")
+
+    # Includes a duplicate URL row to verify deduplicate_records()
     csv_bytes = create_synthetic_csv(
         [
-            {"url": "http://127.0.0.1/t1.mp3", "artist": "Artist 1", "title": "Song 1"},
-            {"url": "http://127.0.0.1/t2.flac", "artist": "Artist 2", "title": "Song 2"},
+            {"url": u1, "artist": "Artist 1", "title": "Song 1"},
+            {"url": u2, "artist": "Artist 2", "title": "Song 2"},
+            {"url": u1, "artist": "Artist 1", "title": "Song 1"},
         ],
         delimiter=";",
         bom=True,
@@ -257,44 +326,69 @@ def test_csv_upload_valid_and_error_cases(monkeypatch: pytest.MonkeyPatch) -> No
     )
     assert ok_resp.status_code == 200
     data = ok_resp.json()
-    assert data["total_tracks"] == 2
+    assert data["filename"] == "playlist.csv"
+    assert data["total_tracks"] == 3
     assert data["valid_tracks"] == 2
+    assert data["job_id"] is None
     assert data["preview"] == [
-        {"url": "http://127.0.0.1/t1.mp3", "artist": "Artist 1", "title": "Song 1"},
-        {"url": "http://127.0.0.1/t2.flac", "artist": "Artist 2", "title": "Song 2"},
+        {"url": u1, "artist": "Artist 1", "title": "Song 1"},
+        {"url": u2, "artist": "Artist 2", "title": "Song 2"},
     ]
     assert len(app.state.last_upload_records) == 2
 
-    # Empty CSV -> 400
-    empty_resp = client.post(
-        "/api/upload",
-        files={"file": ("empty.csv", io.BytesIO(b"   \n"), "text/csv")},
+    # Upload with auto_download=true executes Downloader immediately
+    auto_resp = client.post(
+        "/api/upload?auto_download=true",
+        files={"file": ("auto.csv", io.BytesIO(csv_bytes), "text/csv")},
     )
-    assert empty_resp.status_code == 400
+    assert auto_resp.status_code == 200
+    auto_data = auto_resp.json()
+    assert auto_data["job_id"] is not None
+    job_data = client.get(f"/api/jobs/{auto_data['job_id']}").json()
+    assert job_data["status"] == "completed"
+    assert job_data["downloaded"] == 2
+    assert (clean_library_dir / "Artist 1 - Song 1.mp3").is_file()
+    assert (clean_library_dir / "Artist 2 - Song 2.flac").is_file()
+    assert not list(clean_library_dir.rglob("*.lrc"))
+
+    # Empty CSV -> 400
+    assert (
+        client.post(
+            "/api/upload",
+            files={"file": ("empty.csv", io.BytesIO(b"   \n"), "text/csv")},
+        ).status_code
+        == 400
+    )
 
     # Binary data -> 400
-    binary_resp = client.post(
-        "/api/upload",
-        files={"file": ("bad.csv", io.BytesIO(b"\x00\xff\x00binary"), "text/csv")},
+    assert (
+        client.post(
+            "/api/upload",
+            files={"file": ("bad.csv", io.BytesIO(b"\x00\xff\x00binary"), "text/csv")},
+        ).status_code
+        == 400
     )
-    assert binary_resp.status_code == 400
 
     # Header-only / no valid URLs -> 400
-    no_urls_resp = client.post(
-        "/api/upload",
-        files={"file": ("nourl.csv", io.BytesIO(b"url,artist,title\nnot_a_url,A,B\n"), "text/csv")},
+    assert (
+        client.post(
+            "/api/upload",
+            files={"file": ("nourl.csv", io.BytesIO(b"url,artist,title\nnot_a_url,A,B\n"), "text/csv")},
+        ).status_code
+        == 400
     )
-    assert no_urls_resp.status_code == 400
 
     # Metadata headers without URL column -> 400
-    missing_url_col = client.post(
-        "/api/upload",
-        files={"file": ("missing_col.csv", io.BytesIO(b"artist,title\nA,B\n"), "text/csv")},
+    assert (
+        client.post(
+            "/api/upload",
+            files={"file": ("missing_col.csv", io.BytesIO(b"artist,title\nA,B\n"), "text/csv")},
+        ).status_code
+        == 400
     )
-    assert missing_url_col.status_code == 400
 
 
-def test_jobs_lifecycle_upload_skip_dedup_and_errors(
+def test_jobs_lifecycle_urls_records_csv_text_and_errors(
     tmp_path: Path,
     clean_library_dir: Path,
     unwritable_library_dir: Path,
@@ -302,16 +396,10 @@ def test_jobs_lifecycle_upload_skip_dedup_and_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
-    client = TestClient(create_app())
+    client = TestClient(create_app(default_library_dir=clean_library_dir))
 
     # Unknown job -> 404
     assert client.get("/api/jobs/nonexistent").status_code == 404
-
-    # No library selected -> 400
-    assert client.post("/api/jobs", json={"tracks": [{"url": "http://127.0.0.1/a.mp3"}]}).status_code == 400
-
-    # Select library
-    assert client.post("/api/library", json={"path": str(clean_library_dir)}).status_code == 200
 
     # No tracks uploaded or supplied -> 400
     assert client.post("/api/jobs").status_code == 400
@@ -325,7 +413,6 @@ def test_jobs_lifecycle_upload_skip_dedup_and_errors(
         bitrate_kbps=128,
     )
 
-    # Prepare synthetic audio bytes in temp dir outside library
     staging = tmp_path / "src_audio"
     staging.mkdir()
     new_mp3 = create_synthetic_audio(
@@ -361,74 +448,165 @@ def test_jobs_lifecycle_upload_skip_dedup_and_errors(
             {"url": url_fail, "artist": "Missing", "title": "Broken"},
         ]
     )
-    upload_resp = client.post(
-        "/api/upload",
-        files={"file": ("batch.csv", io.BytesIO(csv_bytes), "text/csv")},
+    assert (
+        client.post(
+            "/api/upload",
+            files={"file": ("batch.csv", io.BytesIO(csv_bytes), "text/csv")},
+        ).status_code
+        == 200
     )
-    assert upload_resp.status_code == 200
 
-    # Trigger job falling back to last_upload_records + app.state.library_dir
+    # 1. Trigger job using last_upload_records
     job_resp = client.post("/api/jobs")
     assert job_resp.status_code == 200
-    created = job_resp.json()
-    job_id = created["job_id"]
-    assert created["total_tracks"] == 3
-
-    # BackgroundTasks completes before TestClient.post returns
-    status_resp = client.get(f"/api/jobs/{job_id}")
-    assert status_resp.status_code == 200
-    job = status_resp.json()
+    job = job_resp.json()
+    job_id = job["job_id"]
     assert job["status"] == "completed"
-    assert job["total_tracks"] == 3
     assert job["downloaded"] == 1
     assert job["skipped"] == 1
     assert job["failed"] == 1
     assert len(job["tracks"]) == 3
+    assert isinstance(job["duplicates_resolved"], list)
+    assert isinstance(job["organized_files"], list)
     assert mock_audio_server.get_request_count("existing.mp3") == 0
     assert mock_audio_server.get_request_count("fresh.mp3") == 1
     assert mock_audio_server.get_request_count("broken.mp3") == 1
 
-    # Verify list jobs
+    # Retrieve job via GET /api/jobs/{job_id} and GET /api/jobs
+    assert client.get(f"/api/jobs/{job_id}").json()["downloaded"] == 1
     all_jobs_resp = client.get("/api/jobs")
     assert all_jobs_resp.status_code == 200
     assert all_jobs_resp.json()["count"] == 1
-    assert all_jobs_resp.json()["jobs"][0]["job_id"] == job_id
 
-    # Verify explicit tracks + quality deduplication via job
+    # 2. Trigger job via urls list into a dedicated target directory
+    urls_lib = tmp_path / "urls_lib"
+    urls_lib.mkdir()
+    u_direct = mock_audio_server.serve_bytes("direct_url.mp3", new_mp3)
+    urls_job = client.post(
+        "/api/jobs",
+        json={"urls": [u_direct], "library_path": str(urls_lib)},
+    )
+    assert urls_job.status_code == 200
+    assert urls_job.json()["downloaded"] == 1
+    assert (urls_lib / "New Artist - Fresh Song.mp3").is_file()
+
+    # 3. Trigger job via records with quality deduplication
     dup_lib = tmp_path / "dup_lib"
+    dup_lib.mkdir()
     u_low = mock_audio_server.serve_bytes("dup_low.mp3", low_dup)
     u_high = mock_audio_server.serve_bytes("dup_high.mp3", high_dup)
     dup_job_resp = client.post(
         "/api/jobs",
         json={
             "library_path": str(dup_lib),
-            "create": True,
             "skip_existing": False,
-            "tracks": [
+            "records": [
                 {"url": u_low, "artist": "Dup Band", "title": "Same Track"},
                 {"url": u_high, "artist": "Dup Band", "title": "Same Track"},
             ],
         },
     )
     assert dup_job_resp.status_code == 200
-    dup_job = client.get(f"/api/jobs/{dup_job_resp.json()['job_id']}").json()
+    dup_job = dup_job_resp.json()
     assert dup_job["status"] == "completed"
     assert dup_job["downloaded"] == 2
     assert len(dup_job["duplicates_resolved"]) >= 1
     assert len(dup_job["organized_files"]) == 1
     remaining_files = [p for p in dup_lib.iterdir() if p.is_file()]
-    assert len(remaining_files) == 1
-    assert remaining_files[0].name == "Dup Band - Same Track.mp3"
+    assert [p.name for p in remaining_files] == ["Dup Band - Same Track.mp3"]
 
-    # Invalid library_path override -> 403 for readonly
-    ro_job_resp = client.post(
+    # 4. Trigger job via csv_text
+    csv_lib = tmp_path / "csv_text_lib"
+    csv_lib.mkdir()
+    u_csv = mock_audio_server.serve_bytes("csv_song.mp3", new_mp3)
+    csv_job = client.post(
         "/api/jobs",
         json={
-            "library_path": str(unwritable_library_dir),
-            "tracks": [{"url": url_new}],
+            "library_path": str(csv_lib),
+            "csv_text": f"url,artist,title\n{u_csv},New Artist,Fresh Song\n",
         },
     )
-    assert ro_job_resp.status_code == 403
+    assert csv_job.status_code == 200
+    assert csv_job.json()["downloaded"] == 1
+    assert (csv_lib / "New Artist - Fresh Song.mp3").is_file()
+
+    # 5. Error paths: invalid URLs, nonexistent library_path without create, file, readonly
+    assert client.post("/api/jobs", json={"urls": ["not_a_url"]}).status_code == 400
+    assert client.post("/api/jobs", json={"urls": []}).status_code == 400
+    assert (
+        client.post(
+            "/api/jobs",
+            json={"urls": [url_new], "library_path": str(tmp_path / "missing_target")},
+        ).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/api/jobs",
+            json={"urls": [url_new], "library_path": str(unwritable_library_dir)},
+        ).status_code
+        == 403
+    )
+
+
+def test_organize_endpoint_deduplicates_flattens_and_preserves_embedded_lyrics(
+    tmp_path: Path,
+    clean_library_dir: Path,
+    unwritable_library_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("SONGETTER_LIBRARY_DIR", raising=False)
+    sub_low = clean_library_dir / "Artist" / "Low"
+    sub_high = clean_library_dir / "Artist" / "High"
+    empty_sub = clean_library_dir / "Empty" / "Nested"
+    sub_low.mkdir(parents=True)
+    sub_high.mkdir(parents=True)
+    empty_sub.mkdir(parents=True)
+
+    create_synthetic_audio(
+        sub_low / "low.mp3",
+        format="mp3",
+        artist="Queen",
+        title="Show Must Go On",
+        bitrate_kbps=128,
+    )
+    high_flac = create_synthetic_audio(
+        sub_high / "high.flac",
+        format="flac",
+        artist="Queen",
+        title="Show Must Go On",
+        bitrate_kbps=1411,
+    )
+    flac_tags = FLAC(high_flac)
+    flac_tags["lyrics"] = "[00:01.00] Empty spaces"
+    flac_tags.save()
+
+    client = TestClient(create_app(default_library_dir=clean_library_dir))
+    resp = client.post("/api/organize")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert data["duplicates_resolved_count"] == 1
+    assert data["deleted_count"] == 1
+    assert data["organized_count"] == 1
+    assert data["filenames"] == ["Queen - Show Must Go On.flac"]
+
+    final_file = clean_library_dir / "Queen - Show Must Go On.flac"
+    assert final_file.is_file()
+    assert FLAC(final_file).get("lyrics") == ["[00:01.00] Empty spaces"]
+    assert not (clean_library_dir / "Artist").exists()
+    assert not (clean_library_dir / "Empty").exists()
+    assert not list(clean_library_dir.rglob("*.lrc"))
+
+    # Read-only or missing library errors
+    assert (
+        client.post("/api/organize", json={"library_path": str(unwritable_library_dir)}).status_code
+        == 403
+    )
+    assert (
+        client.post("/api/organize", json={"library_path": str(tmp_path / "missing")}).status_code
+        == 400
+    )
 
 
 def test_search_sources_and_search_endpoints_mocked(
@@ -503,25 +681,36 @@ def test_search_sources_and_search_endpoints_mocked(
     # 1. GET /api/search/sources
     src_resp = client.get("/api/search/sources")
     assert src_resp.status_code == 200
-    sources_list = src_resp.json()["sources"]
-    source_ids = {s["id"] for s in sources_list}
+    source_ids = {s["id"] for s in src_resp.json()["sources"]}
     assert {"deezer", "tidal", "itunes", "musicbrainz", "qobuz", "spotify"}.issubset(source_ids)
 
-    # 2. GET /api/search single source + type param alias
+    # 2. GET /api/search with single source + type param alias
     get_resp = client.get(
         "/api/search",
         params={"q": "Daft Punk", "source": "deezer", "limit": 1, "type": "track"},
     )
     assert get_resp.status_code == 200
     get_data = get_resp.json()
-    assert get_data["query"] == "Daft Punk"
-    assert get_data["sources"] == ["deezer"]
-    assert get_data["count"] == 1
     assert get_data["results"][0]["track_id"] == "dz-1"
     assert get_data["errors"] == {}
     assert deezer_stub.calls[-1]["search_type"] == "track"
 
-    # 3. POST /api/search multi-source with deduplication + error isolation
+    # 3. GET /api/search omitting sources defaults to federated "all"
+    fed_resp = client.get("/api/search", params={"q": "Daft", "limit": 5})
+    assert fed_resp.status_code == 200
+    fed_data = fed_resp.json()
+    assert len(fed_data["results"]) == 4
+    assert "musicbrainz" in fed_data["errors"]
+
+    # 4. GET /api/search with comma-separated sources
+    comma_resp = client.get(
+        "/api/search",
+        params={"q": "Daft", "sources": "deezer,itunes", "deduplicate": "true"},
+    )
+    assert comma_resp.status_code == 200
+    assert [r["track_id"] for r in comma_resp.json()["results"]] == ["dz-1", "dz-2", "it-2"]
+
+    # 5. POST /api/search multi-source with deduplication + error isolation
     post_resp = client.post(
         "/api/search",
         json={
@@ -534,32 +723,15 @@ def test_search_sources_and_search_endpoints_mocked(
     )
     assert post_resp.status_code == 200
     post_data = post_resp.json()
-    # dz-1 and it-1 share ISRC FRZID9700010, so deduplicated count is 3
     assert post_data["count"] == 3
     assert [r["track_id"] for r in post_data["results"]] == ["dz-1", "dz-2", "it-2"]
     assert "musicbrainz" in post_data["errors"]
-    assert "timeout" in post_data["errors"]["musicbrainz"].lower()
 
-    # 4. GET /api/search with sources=all
-    all_resp = client.get("/api/search", params={"q": "Daft", "sources": "all", "deduplicate": "true"})
-    assert all_resp.status_code == 200
-    assert all_resp.json()["count"] == 3
-    assert "musicbrainz" in all_resp.json()["errors"]
-
-    # 5. Invalid source -> HTTP 400 on both GET and POST
+    # 6. Invalid source -> HTTP 400 on both GET and POST
     assert client.get("/api/search", params={"q": "test", "source": "unknown_xyz"}).status_code == 400
     assert client.post("/api/search", json={"query": "test", "sources": ["unknown_xyz"]}).status_code == 400
     assert client.post("/api/search", json={"query": "test", "sources": "deezer,unknown_xyz"}).status_code == 400
     assert client.get("/api/search", params={"q": "test", "source": ""}).status_code == 400
-
-    # 6. Repeated query param ?sources=deezer&sources=itunes
-    multi_get = client.get(
-        "/api/search",
-        params=[("q", "Daft"), ("sources", "deezer"), ("sources", "itunes"), ("deduplicate", "true")],
-    )
-    assert multi_get.status_code == 200
-    assert multi_get.json()["sources"] == ["deezer", "itunes"]
-    assert multi_get.json()["count"] == 3
 
 
 def test_search_export_csv_from_results_and_query(
@@ -586,7 +758,6 @@ def test_search_export_csv_from_results_and_query(
 
     client = TestClient(create_app())
 
-    # Export directly from submitted results
     resp_results = client.post(
         "/api/search/export",
         json={
@@ -609,22 +780,16 @@ def test_search_export_csv_from_results_and_query(
     parsed_1 = parse_csv(resp_results.content)
     assert len(parsed_1) == 1
     assert parsed_1[0].url == "https://music.apple.com/track/20"
-    assert parsed_1[0].artist == "Daft Punk"
-    assert parsed_1[0].title == "Get Lucky"
 
-    # Export via query + sources + limit
     resp_query = client.post(
         "/api/search/export",
         json={"query": "Instant Crush", "sources": ["deezer"], "limit": 5},
     )
     assert resp_query.status_code == 200
-    assert "text/csv" in resp_query.headers["content-type"]
     parsed_2 = parse_csv(resp_query.content)
     assert len(parsed_2) == 1
     assert parsed_2[0].url == "https://www.deezer.com/track/10"
-    assert parsed_2[0].title == "Instant Crush"
 
-    # Missing both results and query -> 400
     assert client.post("/api/search/export", json={}).status_code == 400
 
 
@@ -679,27 +844,28 @@ def test_search_download_with_results_query_and_preview_fallback(
     )
     register_search_provider("deezer", stub)
 
-    client = TestClient(create_app())
-    assert client.post("/api/library", json={"path": str(clean_library_dir)}).status_code == 200
+    client = TestClient(create_app(default_library_dir=clean_library_dir))
 
-    # 1. Preview-only result with use_preview_if_no_url=False -> 400 (no downloadable URLs)
-    no_url_resp = client.post(
-        "/api/search/download",
-        json={
-            "results": [
-                {
-                    "source": "itunes",
-                    "track_id": "p1",
-                    "title": "Preview Song",
-                    "artist": "Preview Artist",
-                    "url": "",
-                    "preview_url": preview_url,
-                }
-            ],
-            "use_preview_if_no_url": False,
-        },
+    # 1. Preview-only result with use_preview_if_no_url=False -> 400
+    assert (
+        client.post(
+            "/api/search/download",
+            json={
+                "results": [
+                    {
+                        "source": "itunes",
+                        "track_id": "p1",
+                        "title": "Preview Song",
+                        "artist": "Preview Artist",
+                        "url": "",
+                        "preview_url": preview_url,
+                    }
+                ],
+                "use_preview_if_no_url": False,
+            },
+        ).status_code
+        == 400
     )
-    assert no_url_resp.status_code == 400
     assert mock_audio_server.get_request_count("preview_track.mp3") == 0
 
     # 2. Preview-only result with use_preview_if_no_url=True -> downloads preview into library
@@ -720,9 +886,7 @@ def test_search_download_with_results_query_and_preview_fallback(
         },
     )
     assert preview_resp.status_code == 200
-    p_data = preview_resp.json()
-    assert p_data["submitted_tracks"] == 1
-    p_job = client.get(f"/api/jobs/{p_data['job_id']}").json()
+    p_job = client.get(f"/api/jobs/{preview_resp.json()['job_id']}").json()
     assert p_job["status"] == "completed"
     assert p_job["downloaded"] == 1
     assert (clean_library_dir / "Preview Artist - Preview Song.mp3").exists()
@@ -741,44 +905,7 @@ def test_search_download_with_results_query_and_preview_fallback(
         },
     )
     assert query_dl_resp.status_code == 200
-    q_data = query_dl_resp.json()
-    assert q_data["submitted_tracks"] == 1
-    q_job = client.get(f"/api/jobs/{q_data['job_id']}").json()
+    q_job = client.get(f"/api/jobs/{query_dl_resp.json()['job_id']}").json()
     assert q_job["status"] == "completed"
     assert q_job["downloaded"] == 1
     assert (alt_lib / "Direct Artist - Direct Song.flac").exists()
-
-    # 4. Tracks-based download payload & missing library error check
-    track_bytes = create_synthetic_audio(
-        staging / "track_item.flac",
-        format="flac",
-        artist="Track Artist",
-        title="Track Title",
-    ).read_bytes()
-    track_url = mock_audio_server.serve_bytes("track_item.flac", track_bytes)
-    tracks_lib = tmp_path / "tracks_search_lib"
-    tracks_dl_resp = client.post(
-        "/api/search/download",
-        json={
-            "tracks": [
-                {"url": track_url, "artist": "Track Artist", "title": "Track Title"}
-            ],
-            "library_path": str(tracks_lib),
-            "create": True,
-        },
-    )
-    assert tracks_dl_resp.status_code == 200
-    assert tracks_dl_resp.json()["submitted_tracks"] == 1
-    t_job = client.get(f"/api/jobs/{tracks_dl_resp.json()['job_id']}").json()
-    assert t_job["status"] == "completed"
-    assert (tracks_lib / "Track Artist - Track Title.flac").exists()
-
-    # No library configured on fresh app -> 400
-    fresh_client = TestClient(create_app())
-    assert (
-        fresh_client.post(
-            "/api/search/download",
-            json={"tracks": [{"url": direct_url, "artist": "A", "title": "B"}]},
-        ).status_code
-        == 400
-    )

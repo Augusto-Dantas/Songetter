@@ -277,7 +277,9 @@ def test_download_atomic_staging_part_file(clean_library_dir: Path, mock_audio_s
     assert final_file.exists() and final_file.is_file()
     assert final_file.stat().st_size > 0
     assert final_file.read_bytes() == data
+    assert res.tracks[0].file_path == final_file.resolve()
     assert not list(clean_library_dir.glob("*.part"))
+    assert not list(clean_library_dir.rglob("*.part"))
 
 
 # ===========================================================================

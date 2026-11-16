@@ -72,7 +72,9 @@ def _run_web_ingestion_job(
 
         job_resp = client.post("/api/jobs", json={"skip_existing": skip_existing})
         assert job_resp.status_code == 200
-        job_id = job_resp.json()["job_id"]
+        job_payload = job_resp.json()
+        assert job_payload["status"] == "completed"
+        job_id = job_payload["job_id"]
 
         status_resp = client.get(f"/api/jobs/{job_id}")
         assert status_resp.status_code == 200
@@ -290,6 +292,7 @@ def test_scenario_quality_upgrade_workflow(
         assert len(summary.duplicates_resolved) == 2
         assert mock_audio_server.get_request_count("hit1_hq.flac") == 1
         assert mock_audio_server.get_request_count("hit2_hq.flac") == 1
+        assert mock_audio_server.get_request_count() == 2
     else:
         create_synthetic_audio(lib / "Artist A - Hit 1.flac", format="flac", artist="Artist A", title="Hit 1", bitrate_kbps=1411)
         create_synthetic_audio(lib / "Artist B - Hit 2.flac", format="flac", artist="Artist B", title="Hit 2", bitrate_kbps=1411)
@@ -328,6 +331,7 @@ def test_scenario_quality_upgrade_workflow(
         assert not (web_lib / "Artist B - Hit 2.mp3").exists()
         assert mock_audio_server.get_request_count("hit1_hq.flac") == 2
         assert mock_audio_server.get_request_count("hit2_hq.flac") == 2
+        assert mock_audio_server.get_request_count() == 4
 
 
 def test_scenario_quality_downgrade_rejection(
@@ -361,6 +365,7 @@ def test_scenario_quality_downgrade_rejection(
         assert len(summary.duplicates_resolved) == 1
         assert summary.duplicates_resolved[0].retained == flac_orig
         assert mock_audio_server.get_request_count("master_low.mp3") == 1
+        assert mock_audio_server.get_request_count() == 1
     else:
         mp3_inferior = lib / "Master - Masterpiece.mp3"
         create_synthetic_audio(mp3_inferior, format="mp3", artist="Master", title="Masterpiece", bitrate_kbps=128)
@@ -392,6 +397,7 @@ def test_scenario_quality_downgrade_rejection(
         assert not (web_lib / "Master - Masterpiece.mp3").exists()
         assert len(list(web_lib.iterdir())) == 1
         assert mock_audio_server.get_request_count("master_low.mp3") == 2
+        assert mock_audio_server.get_request_count() == 2
 
 
 def test_scenario_fault_tolerant_ingestion_recovery(
@@ -438,6 +444,7 @@ def test_scenario_fault_tolerant_ingestion_recovery(
         assert mock_audio_server.get_request_count("valid3.wav") == 1
         assert mock_audio_server.get_request_count("missing_track.mp3") == 1
         assert mock_audio_server.get_request_count("broken_stream.mp3") == 1
+        assert mock_audio_server.get_request_count() == 5
     else:
         for r in records[:3]:
             fmt = r.url.split(".")[-1]
@@ -477,3 +484,4 @@ def test_scenario_fault_tolerant_ingestion_recovery(
         assert mock_audio_server.get_request_count("valid1.mp3") == 2
         assert mock_audio_server.get_request_count("missing_track.mp3") == 2
         assert mock_audio_server.get_request_count("broken_stream.mp3") == 2
+        assert mock_audio_server.get_request_count() == 10

@@ -1,0 +1,48 @@
+name: Fly.io Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "fly.toml"
+      - "pyproject.toml"
+      - "src/**"
+      - ".github/workflows/fly-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy app to Fly.io
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly.io Machines
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --local-only --yes
+
+      - name: Verify live Fly.io deployment
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          flyctl status -a songetter
+          for i in 1 2 3 4 5 6; do
+            if curl -fsSL https://songetter.fly.dev/api/library; then
+              echo ""
+              echo "Verified live endpoint https://songetter.fly.dev/api/library"
+              exit 0
+            fi
+            sleep 5
+          done
+          flyctl logs -a songetter --no-tail || true
+          exit 1

@@ -62,3 +62,5 @@ See `NEXT_STEPS.md` for the milestone history and verification status.
 6. **Repository & Container Hygiene**:
    - Never commit or bake `downloads/`, `Music/`, `.venv/`, `.pytest_cache/`, or `.agents/` into Git or Docker images (enforced via `.gitignore` and `.dockerignore`).
    - Do not hardcode machine-specific absolute paths like `/home/<user>/...` in tests or source code; resolve relative to `Path(__file__)` or configuration/environment variables (`SONGETTER_LIBRARY_DIR`).
+7. **Fly.io Feedback**:
+   - If a Fly.io API response, CLI command, or docs page is wrong or differs from the docs, report it once with `POST https://api.fly.io/api/v1/feedback` (https://fly.io/agent-ready.md#send-feedback). Include the `fly-request-id` response header, and never include secrets.

@@ -30,8 +30,8 @@ RUN mkdir -p /library /cache
 
 VOLUME ["/library"]
 
-# Port 8501: current Streamlit UI (app.py)
-# Port 8000: reserved for upcoming FastAPI server (Milestone 3: songetter.web.app)
+# Port 8000: default FastAPI server (songetter.web.app:create_app)
+# Port 8501: optional Streamlit UI (streamlit run app.py --server.port=8501)
 EXPOSE 8501 8000
 
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
+CMD ["uvicorn", "songetter.web.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

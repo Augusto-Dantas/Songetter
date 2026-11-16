@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Songetter — Server-Side Music Library Manager</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --surface: #121826;
+      --surface-alt: #182032;
+      --border: #263147;
+      --text: #e5e9f0;
+      --muted: #9aa5b8;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 24px 20px 64px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.75rem;
+      letter-spacing: -0.02em;
+    }
+
+    header .subtitle {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .pill.ok {
+      border-color: rgba(16, 185, 129, 0.45);
+      color: #6ee7b7;
+      background: rgba(16, 185, 129, 0.12);
+    }
+
+    .pill.warn {
+      border-color: rgba(245, 158, 11, 0.45);
+      color: #fcd34d;
+      background: rgba(245, 158, 11, 0.12);
+    }
+
+    .pill.err {
+      border-color: rgba(239, 68, 68, 0.45);
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.12);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 20px;
+    }
+
+    @media (min-width: 960px) {
+      .grid-two {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+      }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 1.12rem;
+    }
+
+    .card p.desc {
+      margin: 0 0 16px;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      flex: 1 1 200px;
+    }
+
+    label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 600;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+      color: var(--text);
+      font-size: 0.92rem;
+    }
+
+    input[type="file"] {
+      padding: 8px;
+      border-radius: 7px;
+      border: 1px dashed var(--border);
+      background: var(--surface-alt);
+      color: var(--text);
+      width: 100%;
+    }
+
+    .checkbox-row {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.88rem;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    button {
+      padding: 9px 16px;
+      border: none;
+      border-radius: 7px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: #fff;
+      background: var(--accent);
+      transition: background 0.15s ease;
+    }
+
+    button:hover {
+      background: var(--accent-hover);
+    }
+
+    button.secondary {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+
+    button.secondary:hover {
+      background: #202a40;
+    }
+
+    button.success {
+      background: #059669;
+    }
+
+    button.success:hover {
+      background: #047857;
+    }
+
+    .status-box {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 7px;
+      font-size: 0.88rem;
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      display: none;
+    }
+
+    .status-box.visible {
+      display: block;
+    }
+
+    .status-box.ok {
+      border-color: rgba(16, 185, 129, 0.45);
+      color: #a7f3d0;
+    }
+
+    .status-box.err {
+      border-color: rgba(239, 68, 68, 0.45);
+      color: #fecaca;
+    }
+
+    .status-box.warn {
+      border-color: rgba(245, 158, 11, 0.45);
+      color: #fde68a;
+    }
+
+    .source-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 10px 0 14px;
+    }
+
+    .source-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      border-radius: 7px;
+      border: 1px solid var(--border);
+      background: var(--surface-alt);
+      font-size: 0.84rem;
+      cursor: pointer;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      margin-top: 14px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.86rem;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    th {
+      background: var(--surface-alt);
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    tr:last-child td {
+      border-bottom: none;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.82rem;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+
+    .metric {
+      background: var(--surface-alt);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+
+    .metric .label {
+      font-size: 0.74rem;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .metric .value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+
+    audio {
+      height: 28px;
+      max-width: 180px;
+    }
+
+    a {
+      color: #818cf8;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div>
+        <h1>Songetter</h1>
+        <p class="subtitle">Server-side flat music library ingestion, multi-source catalog search, and quality deduplication (v{{ version }})</p>
+      </div>
+      <div class="row">
+        <span id="header-library-badge" class="pill {{ 'ok' if library_dir else 'warn' }}">
+          Library: {{ library_dir if library_dir else 'Not selected' }}
+        </span>
+        <span class="pill">Metadata-only lyrics (no .lrc sidecars)</span>
+      </div>
+    </header>
+
+    <div class="grid">
+      <!-- 1. Library Directory Selection -->
+      <section class="card" aria-labelledby="library-heading">
+        <h2 id="library-heading">1. Server Library Directory</h2>
+        <p class="desc">Select a writable directory on the server where audio tracks will be stored in a flat <span class="mono">{Artist} - {Title}.{ext}</span> structure.</p>
+        <form id="library-form" action="/api/library" method="post">
+          <div class="row">
+            <div class="field">
+              <label for="library-path">Library Folder Path</label>
+              <input
+                type="text"
+                id="library-path"
+                name="path"
+                value="{{ library_dir }}"
+                placeholder="/library or /path/to/music"
+                required
+              >
+            </div>
+            <div style="padding-top: 20px;">
+              <label class="checkbox-row">
+                <input type="checkbox" id="library-create" name="create">
+                Create directory if missing
+              </label>
+            </div>
+            <div style="padding-top: 20px;">
+              <button type="submit">Select Library Directory</button>
+            </div>
+          </div>
+        </form>
+        <div id="library-status" class="status-box" role="status"></div>
+      </section>
+
+      <!-- 2. Multi-Source Search Panel -->
+      <section class="card" aria-labelledby="search-heading">
+        <h2 id="search-heading">2. Multi-Source Catalog Search</h2>
+        <p class="desc">Search across Deezer, TIDAL, iTunes, MusicBrainz, Qobuz, and Spotify, export results as CSV, or download directly into your library.</p>
+        <form id="search-form" action="/api/search" method="get">
+          <div class="row">
+            <div class="field" style="flex: 2 1 280px;">
+              <label for="search-query">Search Query</label>
+              <input type="text" id="search-query" name="q" placeholder="Artist, track title, or album..." required>
+            </div>
+            <div class="field" style="flex: 1 1 140px;">
+              <label for="search-type">Search Type</label>
+              <select id="search-type" name="search_type">
+                <option value="track" selected>Track</option>
+                <option value="album">Album</option>
+                <option value="artist">Artist</option>
+              </select>
+            </div>
+            <div class="field" style="flex: 0 1 110px;">
+              <label for="search-limit">Limit</label>
+              <input type="number" id="search-limit" name="limit" value="10" min="1" max="100">
+            </div>
+            <div style="padding-top: 20px;">
+              <label class="checkbox-row">
+                <input type="checkbox" id="search-deduplicate" name="deduplicate">
+                Deduplicate results
+              </label>
+            </div>
+            <div style="padding-top: 20px;">
+              <button type="submit">Search Catalog</button>
+            </div>
+          </div>
+
+          <div style="margin-top: 12px;">
+            <label>Sources</label>
+            <div id="search-sources-container" class="source-chips">
+              <label class="source-chip">
+                <input type="checkbox" name="sources" value="all" id="source-all">
+                <span>All configured (all)</span>
+              </label>
+              {% for src in sources %}
+              <label class="source-chip">
+                <input
+                  type="checkbox"
+                  name="sources"
+                  value="{{ src.id }}"
+                  {% if src.id == 'deezer' %}checked{% endif %}
+                >
+                <span>{{ src.name }} ({{ src.id }})</span>
+                <span class="pill {{ 'ok' if src.configured else 'warn' }}">
+                  {{ 'ready' if src.configured else 'auth needed' }}
+                </span>
+              </label>
+              {% endfor %}
+              {% if not sources %}
+              <select id="search-source-select" name="source">
+                <option value="deezer" selected>deezer</option>
+                <option value="tidal">tidal</option>
+                <option value="itunes">itunes</option>
+                <option value="musicbrainz">musicbrainz</option>
+                <option value="qobuz">qobuz</option>
+                <option value="spotify">spotify</option>
+                <option value="all">all</option>
+              </select>
+              {% endif %}
+            </div>
+          </div>
+        </form>
+
+        <div id="search-status" class="status-box" role="status"></div>
+        <div id="search-errors" class="status-box warn" role="alert"></div>
+
+        <div class="row" style="margin-top: 12px; justify-content: space-between;">
+          <div class="row">
+            <button type="button" id="btn-download-search" class="success">Download to Library</button>
+            <button type="button" id="btn-export-search" class="secondary">Export CSV</button>
+            <label class="checkbox-row">
+              <input type="checkbox" id="use-preview-if-no-url">
+              Fallback to preview URL if track URL missing
+            </label>
+          </div>
+          <span id="search-count" class="muted">0 results</span>
+        </div>
+
+        <div class="table-wrap">
+          <table id="search-results-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="search-select-all" title="Select all results"></th>
+                <th>Source</th>
+                <th>Artist</th>
+                <th>Title</th>
+                <th>Album</th>
+                <th>Duration</th>
+                <th>Quality / Preview</th>
+                <th>Link</th>
+              </tr>
+            </thead>
+            <tbody id="search-results-body">
+              <tr><td colspan="8" class="muted">Run a search to inspect catalog matches.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <div class="grid-two">
+        <!-- 3. CSV Upload & Preview -->
+        <section class="card" aria-labelledby="upload-heading">
+          <h2 id="upload-heading">3. Upload CSV Playlist / Track List</h2>
+          <p class="desc">Upload an RFC 4180 CSV (with <span class="mono">url</span>, <span class="mono">artist</span>, <span class="mono">title</span> columns or bare links) for pre-download checking and ingestion.</p>
+          <form id="upload-form" action="/api/upload" method="post" enctype="multipart/form-data">
+            <div class="field">
+              <label for="csv-file">CSV File</label>
+              <input type="file" id="csv-file" name="file" accept=".csv" required>
+            </div>
+            <div class="row" style="margin-top: 12px;">
+              <button type="submit">Upload &amp; Parse CSV</button>
+              <span id="upload-summary" class="muted"></span>
+            </div>
+          </form>
+          <div id="upload-status" class="status-box" role="status"></div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Artist</th>
+                  <th>Title</th>
+                  <th>URL</th>
+                </tr>
+              </thead>
+              <tbody id="csv-preview-body">
+                <tr><td colspan="4" class="muted">No CSV uploaded yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- 4. Job Execution & Status Monitor -->
+        <section class="card" aria-labelledby="jobs-heading">
+          <h2 id="jobs-heading">4. Job Execution &amp; Status Monitor</h2>
+          <p class="desc">Dispatch the uploaded CSV tracks to the server downloader with pre-download skip checking, quality deduplication, and flat library organization.</p>
+          <form id="job-form" action="/api/jobs" method="post">
+            <div class="row">
+              <div class="field" style="flex: 0 1 130px;">
+                <label for="job-concurrency">Concurrency</label>
+                <input type="number" id="job-concurrency" name="max_concurrent" value="2" min="1" max="16">
+              </div>
+              <div style="padding-top: 20px;" class="row">
+                <label class="checkbox-row">
+                  <input type="checkbox" id="job-skip-existing" checked>
+                  Skip existing tracks
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="job-auto-dedup" checked>
+                  Deduplicate quality
+                </label>
+                <label class="checkbox-row">
+                  <input type="checkbox" id="job-auto-organize" checked>
+                  Flatten &amp; standardize
+                </label>
+              </div>
+            </div>
+            <div class="row" style="margin-top: 12px;">
+              <button type="submit" class="success">Start Download Job</button>
+              <button type="button" id="btn-refresh-jobs" class="secondary">Refresh Jobs</button>
+            </div>
+          </form>
+
+          <div id="job-status-box" class="status-box" role="status"></div>
+
+          <div class="metrics" id="active-job-metrics" style="display: none;">
+            <div class="metric"><div class="label">Status</div><div class="value" id="m-status">-</div></div>
+            <div class="metric"><div class="label">Total</div><div class="value" id="m-total">0</div></div>
+            <div class="metric"><div class="label">Downloaded</div><div class="value" id="m-downloaded">0</div></div>
+            <div class="metric"><div class="label">Skipped</div><div class="value" id="m-skipped">0</div></div>
+            <div class="metric"><div class="label">Failed</div><div class="value" id="m-failed">0</div></div>
+            <div class="metric"><div class="label">Deduplicated</div><div class="value" id="m-dedup">0</div></div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Job ID</th>
+                  <th>Status</th>
+                  <th>Downloaded</th>
+                  <th>Skipped</th>
+                  <th>Failed</th>
+                </tr>
+              </thead>
+              <tbody id="jobs-list-body">
+                <tr><td colspan="5" class="muted">No jobs dispatched yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- 5. Flat Library Track Table -->
+      <section class="card" aria-labelledby="tracks-heading">
+        <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+          <div>
+            <h2 id="tracks-heading">5. Flat Library Tracks</h2>
+            <p class="desc" id="library-tracks-summary">Inspect audio tracks currently indexed in the selected server library folder.</p>
+          </div>
+          <button type="button" id="btn-refresh-library" class="secondary">Refresh Library</button>
+        </div>
+
+        <div class="table-wrap">
+          <table id="library-tracks-table">
+            <thead>
+              <tr>
+                <th>Filename</th>
+                <th>Artist</th>
+                <th>Title</th>
+                <th>Bitrate</th>
+                <th>File Size</th>
+                <th>Duration</th>
+                <th>Path</th>
+              </tr>
+            </thead>
+            <tbody id="library-tracks-body">
+              <tr><td colspan="7" class="muted">Select a library directory to view tracks.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      let currentSearchResults = [];
+      let activeJobPollTimer = null;
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function setStatus(elementId, message, variant) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        if (!message) {
+          el.className = "status-box";
+          el.textContent = "";
+          return;
+        }
+        el.className = "status-box visible " + (variant || "");
+        el.textContent = message;
+      }
+
+      function formatDuration(seconds) {
+        if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) {
+          return "-";
+        }
+        const total = Math.max(0, Math.round(Number(seconds)));
+        const mins = Math.floor(total / 60);
+        const secs = total % 60;
+        return mins + ":" + String(secs).padStart(2, "0");
+      }
+
+      function formatBytes(bytes) {
+        const num = Number(bytes || 0);
+        if (!num) return "0 B";
+        const units = ["B", "KB", "MB", "GB"];
+        let val = num;
+        let idx = 0;
+        while (val >= 1024 && idx < units.length - 1) {
+          val /= 1024;
+          idx++;
+        }
+        return val.toFixed(idx === 0 ? 0 : 1) + " " + units[idx];
+      }
+
+      function formatBitrate(bps) {
+        const num = Number(bps || 0);
+        if (!num) return "-";
+        return Math.round(num / 1000) + " kbps";
+      }
+
+      async function fetchJson(url, options) {
+        const resp = await fetch(url, options);
+        const text = await resp.text();
+        let data = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch (err) {
+          data = { detail: text };
+        }
+        if (!resp.ok) {
+          const msg = data.detail || ("HTTP " + resp.status);
+          throw new Error(msg);
+        }
+        return data;
+      }
+
+      async function refreshLibraryTracks() {
+        try {
+          const data = await fetchJson("/api/library/tracks");
+          const badge = document.getElementById("header-library-badge");
+          const summary = document.getElementById("library-tracks-summary");
+          const tbody = document.getElementById("library-tracks-body");
+
+          if (data.library_dir) {
+            badge.className = "pill ok";
+            badge.textContent = "Library: " + data.library_dir;
+            summary.textContent = data.tracks.length + " track(s) in " + data.library_dir;
+          } else {
+            badge.className = "pill warn";
+            badge.textContent = "Library: Not selected";
+            summary.textContent = "No library directory selected.";
+          }
+
+          if (!data.tracks || data.tracks.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="muted">No audio tracks found in library.</td></tr>';
+            return;
+          }
+
+          tbody.innerHTML = data.tracks.map(function (t) {
+            return (
+              "<tr>" +
+              '<td class="mono">' + escapeHtml(t.filename) + "</td>" +
+              "<td>" + escapeHtml(t.artist) + "</td>" +
+              "<td>" + escapeHtml(t.title) + "</td>" +
+              "<td>" + escapeHtml(formatBitrate(t.bitrate)) + "</td>" +
+              "<td>" + escapeHtml(formatBytes(t.file_size)) + "</td>" +
+              "<td>" + escapeHtml(formatDuration(t.duration)) + "</td>" +
+              '<td class="mono muted">' + escapeHtml(t.path) + "</td>" +
+              "</tr>"
+            );
+          }).join("");
+        } catch (err) {
+          setStatus("library-status", "Failed to load library tracks: " + err.message, "err");
+        }
+      }
+
+      function getSelectedSearchSources() {
+        const checkboxes = Array.from(document.querySelectorAll('#search-sources-container input[name="sources"]:checked'));
+        if (checkboxes.length > 0) {
+          const values = checkboxes.map(function (cb) { return cb.value; });
+          if (values.includes("all")) {
+            return ["all"];
+          }
+          return values;
+        }
+        const selectEl = document.getElementById("search-source-select");
+        if (selectEl && selectEl.value) {
+          return [selectEl.value];
+        }
+        return ["deezer"];
+      }
+
+      function getSelectedResultsPayload() {
+        const selectedChecks = Array.from(document.querySelectorAll(".search-row-select:checked"));
+        if (selectedChecks.length > 0) {
+          return selectedChecks.map(function (cb) {
+            return currentSearchResults[Number(cb.dataset.index)];
+          }).filter(Boolean);
+        }
+        return currentSearchResults.slice();
+      }
+
+      function renderSearchResults(results) {
+        currentSearchResults = results || [];
+        document.getElementById("search-count").textContent = currentSearchResults.length + " result(s)";
+        const tbody = document.getElementById("search-results-body");
+        if (currentSearchResults.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="8" class="muted">No matching tracks found.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = currentSearchResults.map(function (r, idx) {
+          const previewHtml = r.preview_url
+            ? '<audio controls preload="none" src="' + escapeHtml(r.preview_url) + '"></audio>'
+            : '<span class="muted">-</span>';
+          const quality = r.quality_hint ? '<span class="pill">' + escapeHtml(r.quality_hint) + "</span> " : "";
+          const linkHtml = r.url
+            ? '<a href="' + escapeHtml(r.url) + '" target="_blank" rel="noopener noreferrer">Open</a>'
+            : '<span class="muted">-</span>';
+          return (
+            "<tr>" +
+            '<td><input type="checkbox" class="search-row-select" data-index="' + idx + '" checked></td>' +
+            '<td><span class="pill">' + escapeHtml(r.source) + "</span></td>" +
+            "<td>" + escapeHtml(r.artist) + "</td>" +
+            "<td>" + escapeHtml(r.title) + "</td>" +
+            "<td>" + escapeHtml(r.album || "-") + "</td>" +
+            "<td>" + escapeHtml(formatDuration(r.duration_seconds)) + "</td>" +
+            "<td>" + quality + previewHtml + "</td>" +
+            "<td>" + linkHtml + "</td>" +
+            "</tr>"
+          );
+        }).join("");
+      }
+
+      function renderJobMetrics(job) {
+        const metrics = document.getElementById("active-job-metrics");
+        if (!job) {
+          metrics.style.display = "none";
+          return;
+        }
+        metrics.style.display = "grid";
+        document.getElementById("m-status").textContent = job.status || "-";
+        document.getElementById("m-total").textContent = String(job.total_tracks ?? 0);
+        document.getElementById("m-downloaded").textContent = String(job.downloaded ?? 0);
+        document.getElementById("m-skipped").textContent = String(job.skipped ?? 0);
+        document.getElementById("m-failed").textContent = String(job.failed ?? 0);
+        document.getElementById("m-dedup").textContent = String((job.duplicates_resolved || []).length);
+      }
+
+      async function refreshJobs() {
+        try {
+          const data = await fetchJson("/api/jobs");
+          const jobs = data.jobs || [];
+          const tbody = document.getElementById("jobs-list-body");
+          if (jobs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="muted">No jobs dispatched yet.</td></tr>';
+            return;
+          }
+          renderJobMetrics(jobs[0]);
+          tbody.innerHTML = jobs.map(function (job) {
+            return (
+              "<tr>" +
+              '<td class="mono">' + escapeHtml(job.job_id.slice(0, 10)) + "</td>" +
+              "<td>" + escapeHtml(job.status) + "</td>" +
+              "<td>" + escapeHtml(job.downloaded) + "</td>" +
+              "<td>" + escapeHtml(job.skipped) + "</td>" +
+              "<td>" + escapeHtml(job.failed) + "</td>" +
+              "</tr>"
+            );
+          }).join("");
+
+          const hasRunning = jobs.some(function (j) {
+            return j.status === "queued" || j.status === "running";
+          });
+          if (!hasRunning && activeJobPollTimer) {
+            clearInterval(activeJobPollTimer);
+            activeJobPollTimer = null;
+            refreshLibraryTracks();
+          }
+        } catch (err) {
+          setStatus("job-status-box", "Failed to load jobs: " + err.message, "err");
+        }
+      }
+
+      function startJobPolling(jobId) {
+        if (activeJobPollTimer) {
+          clearInterval(activeJobPollTimer);
+        }
+        activeJobPollTimer = setInterval(async function () {
+          try {
+            const job = await fetchJson("/api/jobs/" + encodeURIComponent(jobId));
+            renderJobMetrics(job);
+            if (job.status === "completed" || job.status === "failed") {
+              clearInterval(activeJobPollTimer);
+              activeJobPollTimer = null;
+              setStatus(
+                "job-status-box",
+                job.status === "completed"
+                  ? "Job " + job.job_id.slice(0, 8) + " completed: " + job.downloaded + " downloaded, " + job.skipped + " skipped, " + job.failed + " failed."
+                  : "Job failed: " + (job.error || "Unknown error"),
+                job.status === "completed" ? "ok" : "err"
+              );
+              await refreshJobs();
+              await refreshLibraryTracks();
+            }
+          } catch (err) {
+            clearInterval(activeJobPollTimer);
+            activeJobPollTimer = null;
+          }
+        }, 1200);
+      }
+
+      document.getElementById("library-form").addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const path = document.getElementById("library-path").value;
+        const create = document.getElementById("library-create").checked;
+        try {
+          const data = await fetchJson("/api/library", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path: path, create: create }),
+          });
+          document.getElementById("library-path").value = data.path;
+          setStatus("library-status", "Active library directory validated: " + data.path, "ok");
+          await refreshLibraryTracks();
+        } catch (err) {
+          setStatus("library-status", err.message, "err");
+        }
+      });
+
+      document.getElementById("search-form").addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const query = document.getElementById("search-query").value.trim();
+        const sources = getSelectedSearchSources();
+        const searchType = document.getElementById("search-type").value;
+        const limit = Number(document.getElementById("search-limit").value || 10);
+        const deduplicate = document.getElementById("search-deduplicate").checked;
+
+        setStatus("search-errors", "", "");
+        setStatus("search-status", "Searching " + sources.join(", ") + "...", "");
+
+        try {
+          const data = await fetchJson("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: query,
+              sources: sources,
+              limit: limit,
+              search_type: searchType,
+              deduplicate: deduplicate,
+            }),
+          });
+          renderSearchResults(data.results || []);
+          setStatus("search-status", "Found " + data.count + " result(s) across " + (data.sources || []).join(", "), "ok");
+          const errorEntries = Object.entries(data.errors || {});
+          if (errorEntries.length > 0) {
+            setStatus(
+              "search-errors",
+              "Provider errors: " + errorEntries.map(function (kv) { return kv[0] + ": " + kv[1]; }).join(" | "),
+              "warn"
+            );
+          }
+        } catch (err) {
+          setStatus("search-status", err.message, "err");
+        }
+      });
+
+      document.getElementById("search-select-all").addEventListener("change", function (event) {
+        const checked = event.target.checked;
+        document.querySelectorAll(".search-row-select").forEach(function (cb) {
+          cb.checked = checked;
+        });
+      });
+
+      document.getElementById("btn-export-search").addEventListener("click", async function () {
+        const items = getSelectedResultsPayload();
+        if (items.length === 0) {
+          setStatus("search-status", "Run a search first before exporting CSV.", "err");
+          return;
+        }
+        try {
+          const resp = await fetch("/api/search/export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ results: items }),
+          });
+          if (!resp.ok) {
+            throw new Error("Export failed (HTTP " + resp.status + ")");
+          }
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "songetter_search.csv";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          setStatus("search-status", err.message, "err");
+        }
+      });
+
+      document.getElementById("btn-download-search").addEventListener("click", async function () {
+        const items = getSelectedResultsPayload();
+        if (items.length === 0) {
+          setStatus("search-status", "Select or search for at least one result first.", "err");
+          return;
+        }
+        const usePreview = document.getElementById("use-preview-if-no-url").checked;
+        try {
+          const data = await fetchJson("/api/search/download", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              results: items,
+              use_preview_if_no_url: usePreview,
+            }),
+          });
+          setStatus("search-status", "Dispatched download job " + data.job_id.slice(0, 8) + " (" + data.submitted_tracks + " track(s)).", "ok");
+          await refreshJobs();
+          startJobPolling(data.job_id);
+        } catch (err) {
+          setStatus("search-status", err.message, "err");
+        }
+      });
+
+      document.getElementById("upload-form").addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const fileInput = document.getElementById("csv-file");
+        if (!fileInput.files || fileInput.files.length === 0) {
+          setStatus("upload-status", "Choose a CSV file first.", "err");
+          return;
+        }
+        const formData = new FormData();
+        formData.append("file", fileInput.files[0]);
+        try {
+          const data = await fetchJson("/api/upload", {
+            method: "POST",
+            body: formData,
+          });
+          document.getElementById("upload-summary").textContent = data.valid_tracks + " valid track(s) parsed";
+          setStatus("upload-status", "Parsed " + data.valid_tracks + " track(s) from CSV.", "ok");
+          const tbody = document.getElementById("csv-preview-body");
+          tbody.innerHTML = (data.preview || []).map(function (row, idx) {
+            return (
+              "<tr>" +
+              "<td>" + (idx + 1) + "</td>" +
+              "<td>" + escapeHtml(row.artist || "-") + "</td>" +
+              "<td>" + escapeHtml(row.title || "-") + "</td>" +
+              '<td class="mono">' + escapeHtml(row.url) + "</td>" +
+              "</tr>"
+            );
+          }).join("");
+        } catch (err) {
+          setStatus("upload-status", err.message, "err");
+        }
+      });
+
+      document.getElementById("job-form").addEventListener("submit", async function (event) {
+        event.preventDefault();
+        const maxConcurrent = Number(document.getElementById("job-concurrency").value || 2);
+        const skipExisting = document.getElementById("job-skip-existing").checked;
+        const autoDedup = document.getElementById("job-auto-dedup").checked;
+        const autoOrganize = document.getElementById("job-auto-organize").checked;
+        try {
+          const job = await fetchJson("/api/jobs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              max_concurrent: maxConcurrent,
+              skip_existing: skipExisting,
+              auto_deduplicate: autoDedup,
+              auto_organize: autoOrganize,
+            }),
+          });
+          setStatus("job-status-box", "Job " + job.job_id.slice(0, 8) + " queued (" + job.total_tracks + " track(s)).", "ok");
+          renderJobMetrics(job);
+          await refreshJobs();
+          startJobPolling(job.job_id);
+        } catch (err) {
+          setStatus("job-status-box", err.message, "err");
+        }
+      });
+
+      document.getElementById("btn-refresh-library").addEventListener("click", refreshLibraryTracks);
+      document.getElementById("btn-refresh-jobs").addEventListener("click", refreshJobs);
+
+      refreshLibraryTracks();
+      refreshJobs();
+    })();
+  </script>
+</body>
+</html>

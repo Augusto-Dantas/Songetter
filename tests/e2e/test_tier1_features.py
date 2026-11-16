@@ -267,9 +267,16 @@ def test_download_atomic_staging_part_file(clean_library_dir: Path, mock_audio_s
     data = b"MPEG_AUDIO_TEST_PAYLOAD" * 50
     url = mock_audio_server.serve_slow("slow.mp3", data, chunk_size=100, delay_sec=0.05)
     downloader = Downloader(clean_library_dir)
-    downloader.download([TrackRecord(url=url, artist="Slow", title="Track", raw_row={})])
+    res = downloader.download([TrackRecord(url=url, artist="Slow", title="Track", raw_row={})])
 
-    # Final file should exist; zero .part files should remain
+    # Final promoted file should exist, be non-empty, and match served payload; zero .part files remain
+    final_file = clean_library_dir / "Slow - Track.mp3"
+    assert res.downloaded == 1
+    assert res.failed == 0
+    assert mock_audio_server.get_request_count("slow.mp3") == 1
+    assert final_file.exists() and final_file.is_file()
+    assert final_file.stat().st_size > 0
+    assert final_file.read_bytes() == data
     assert not list(clean_library_dir.glob("*.part"))
 
 

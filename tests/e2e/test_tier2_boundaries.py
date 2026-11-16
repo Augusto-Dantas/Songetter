@@ -171,38 +171,61 @@ def test_boundary_pre_download_case_and_whitespace_variance(clean_library_dir: P
     assert index.contains_stem("Artist - Title") is True
 
 
-def test_boundary_pre_download_url_encoded_stems(clean_library_dir: Path) -> None:
+def test_boundary_pre_download_url_encoded_stems(clean_library_dir: Path, mock_audio_server) -> None:
     """TC-T2-R2-03: Verify stem matching when URL contains percent-encoded characters."""
     existing_file = clean_library_dir / "ACDC - Back In Black.flac"
     create_synthetic_audio(existing_file, format="flac", artist="ACDC", title="Back In Black")
 
     index = LibraryIndex.build(clean_library_dir)
-    # URL encoded string
-    encoded_url = "http://127.0.0.1/ACDC%20-%20Back%20In%20Black.flac"
-    import urllib.parse
-    stem_from_url = Path(urllib.parse.unquote(urllib.parse.urlparse(encoded_url).path)).stem
+    encoded_url = mock_audio_server.serve_bytes(
+        "ACDC%20-%20Back%20In%20Black.flac",
+        b"FLAC_BYTES",
+        content_type="audio/flac",
+    )
 
-    assert index.contains_stem(stem_from_url) is True
+    assert index.contains_stem(encoded_url) is True
+
+    if has_downloader_module and Downloader is not None:
+        res = Downloader(clean_library_dir).download([TrackRecord(url=encoded_url)])
+        assert res.skipped == 1
+        assert res.downloaded == 0
+        assert mock_audio_server.get_request_count("ACDC%20-%20Back%20In%20Black.flac") == 0
 
 
-def test_boundary_pre_download_duplicate_csv_rows(clean_library_dir: Path) -> None:
-    """TC-T2-R2-04: Verify duplicate rows within the same CSV are deduplicated."""
+def test_boundary_pre_download_duplicate_csv_rows(
+    clean_library_dir: Path, mock_audio_server, tmp_path: Path
+) -> None:
+    """TC-T2-R2-04: Verify duplicate rows within the same CSV are deduplicated by the downloader."""
+    if not has_downloader_module or Downloader is None:
+        pytest.skip("songetter.downloader is not yet implemented (Milestone 2)")
+
+    staging = tmp_path / "staging"
+    dup_bytes = create_synthetic_audio(
+        staging / "dup.mp3", format="mp3", artist="Band", title="Hit"
+    ).read_bytes()
+    other_bytes = create_synthetic_audio(
+        staging / "other.mp3", format="mp3", artist="Band", title="Other"
+    ).read_bytes()
+
+    dup_url = mock_audio_server.serve_bytes("dup.mp3", dup_bytes)
+    other_url = mock_audio_server.serve_bytes("other.mp3", other_bytes)
+
     csv_bytes = create_synthetic_csv([
-        {"url": "http://127.0.0.1/dup.mp3", "artist": "Band", "title": "Hit"},
-        {"url": "http://127.0.0.1/other.mp3", "artist": "Band", "title": "Other"},
-        {"url": "http://127.0.0.1/dup.mp3", "artist": "Band", "title": "Hit"},
+        {"url": dup_url, "artist": "Band", "title": "Hit"},
+        {"url": other_url, "artist": "Band", "title": "Other"},
+        {"url": dup_url, "artist": "Band", "title": "Hit"},
     ])
     records = parse_csv(csv_bytes)
     assert len(records) == 3
 
-    # Deduplication by URL
-    unique_urls = set()
-    deduped_records: List[TrackRecord] = []
-    for r in records:
-        if r.url not in unique_urls:
-            unique_urls.add(r.url)
-            deduped_records.append(r)
-    assert len(deduped_records) == 2
+    res = Downloader(clean_library_dir).download(records)
+    assert res.downloaded == 2
+    assert res.skipped == 0
+    assert res.failed == 0
+    assert mock_audio_server.get_request_count("dup.mp3") == 1
+    assert mock_audio_server.get_request_count("other.mp3") == 1
+    assert (clean_library_dir / "Band - Hit.mp3").is_file()
+    assert (clean_library_dir / "Band - Other.mp3").is_file()
 
 
 def test_boundary_pre_download_non_audio_file_rejection(clean_library_dir: Path) -> None:

@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Tuple, Union
+from urllib.parse import unquote, urlparse
 
 from songetter.config import AUDIO_SUFFIXES, PROBE_PREFIX
 from songetter.deduplicator import extract_metadata, normalize_text
@@ -100,6 +101,37 @@ def validate_library_directory(
     return p
 
 
+def extract_url_stem(url_or_stem: str) -> str:
+    """Extracts an unquoted filename stem from a URL or plain stem string.
+
+    Uses ``urllib.parse.urlparse`` and ``urllib.parse.unquote`` to decode
+    percent-encoded URL paths or stems, stripping any trailing audio extension
+    only when it matches ``AUDIO_SUFFIXES``.
+    """
+    if not url_or_stem or not isinstance(url_or_stem, str):
+        return ""
+
+    raw = url_or_stem.strip()
+    if not raw:
+        return ""
+
+    parsed = urlparse(raw)
+    if parsed.scheme in {"http", "https"} or (parsed.scheme and parsed.netloc):
+        unquoted_path = unquote(parsed.path).rstrip("/")
+        if not unquoted_path:
+            return ""
+        candidate = PurePosixPath(unquoted_path).name
+        if not candidate:
+            return ""
+    else:
+        candidate = unquote(raw)
+
+    p = Path(candidate)
+    if p.suffix.lower() in AUDIO_SUFFIXES:
+        return p.stem
+    return candidate
+
+
 class LibraryIndex:
     """In-memory index of audio files in a library directory."""
 
@@ -129,12 +161,14 @@ class LibraryIndex:
         return index
 
     def contains_stem(self, stem: str) -> bool:
-        """Checks if a normalized filename stem exists in the library."""
-        if not stem:
+        """Checks if a normalized filename stem or URL stem exists in the library."""
+        extracted = extract_url_stem(stem)
+        if not extracted:
             return False
-        p = Path(stem)
-        clean_stem = p.stem if p.suffix.lower() in AUDIO_SUFFIXES else stem
-        return normalize_text(clean_stem) in self._stem_map
+        norm = normalize_text(extracted)
+        if not norm:
+            return False
+        return norm in self._stem_map
 
     def contains_track(self, artist: str, title: str) -> bool:
         """Checks if a track exists by metadata tags or formatted stem."""
